@@ -1,8 +1,4 @@
-![Darknet Logo](http://pjreddie.com/media/files/darknet-black-small.png)
+Modified version of Darknet to allow exporting weights in a convenient format for TensorFlow.
 
-#Darknet#
-Darknet is an open source neural network framework written in C and CUDA. It is fast, easy to install, and supports CPU and GPU computation.
-
-For more information see the [Darknet project website](http://pjreddie.com/darknet).
-
-For questions or issues please use the [Google Group](https://groups.google.com/forum/#!forum/darknet).
+Run from command line: "darknet yolo export_weights cfg/yolo-small.cfg tiny-yolo.weights"
+The weights/biases for each layer will be placed in weights/
