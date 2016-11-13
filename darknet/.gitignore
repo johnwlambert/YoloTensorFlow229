@@ -16,6 +16,7 @@ weights/
 cfg/
 darknet
 .fuse*
+*.weights
 
 # OS Generated #
 .DS_Store*

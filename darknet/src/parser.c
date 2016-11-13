@@ -429,7 +429,7 @@ layer parse_batchnorm(list *options, size_params params)
 
 layer parse_shortcut(list *options, size_params params, network net)
 {
-    char *l = option_find(options, "from");   
+    char *l = option_find(options, "from");
     int index = atoi(l);
     if(index < 0) index = params.index + index;
 
@@ -464,7 +464,7 @@ layer parse_activation(list *options, size_params params)
 
 route_layer parse_route(list *options, size_params params, network net)
 {
-    char *l = option_find(options, "layers");   
+    char *l = option_find(options, "layers");
     int len = strlen(l);
     if(!l) error("Route Layer must specify input layers");
     int n = 1;
@@ -557,8 +557,8 @@ void parse_net_options(list *options, network *net)
         net->step = option_find_int(options, "step", 1);
         net->scale = option_find_float(options, "scale", 1);
     } else if (net->policy == STEPS){
-        char *l = option_find(options, "steps");   
-        char *p = option_find(options, "scales");   
+        char *l = option_find(options, "steps");
+        char *p = option_find(options, "scales");
         if(!l || !p) error("STEPS policy must have steps and scales in cfg file");
 
         int len = strlen(l);
@@ -694,7 +694,7 @@ network parse_network_cfg(char *filename)
             params.c = l.out_c;
             params.inputs = l.outputs;
         }
-    }   
+    }
     free_list(sections);
     net.outputs = get_network_output_size(net);
     net.output = get_network_output(net);
@@ -1088,3 +1088,46 @@ void load_weights(network *net, char *filename)
     load_weights_upto(net, filename, net->n);
 }
 
+#if CS229_EDIT
+void export_weights(network net) {
+    int i;
+    for(i = 0; i < net.n; ++i){
+        layer l = net.layers[i];
+        if(l.type == CONVOLUTIONAL){
+            char filename[64];
+            char directory[] = "weights";
+            sprintf(filename, "%s/conv_bias_layer%d.csv", directory, i);
+            FILE *conv_bias = fopen(filename, "w");
+            unsigned int j;
+            for (j = 0; j < l.n; j++) {
+                fprintf(conv_bias, "%f\n", l.biases[j]);
+            }
+            fclose(conv_bias);
+
+            sprintf(filename, "%s/conv_weight_layer%d.csv", directory, i);
+            FILE *conv_weight = fopen(filename, "w");
+            for (j = 0; j < l.n*l.c*l.size*l.size; j++) {
+                fprintf(conv_weight, "%f\n", l.weights[j]);
+            }
+            fclose(conv_weight);
+        } if(l.type == CONNECTED){
+            char filename[64];
+            char directory[] = "weights";
+            sprintf(filename, "%s/connect_bias_layer%d.csv", directory, i);
+            FILE *connect_bias = fopen(filename, "w");
+            unsigned int j;
+            for (j = 0; j < l.outputs; j++) {
+                fprintf(connect_bias, "%f\n", l.biases[j]);
+            }
+            fclose(connect_bias);
+
+            sprintf(filename, "%s/connect_weight_layer%d.csv", directory, i);
+            FILE *connect_weight = fopen(filename, "w");
+            for (j = 0; j < l.outputs * l.inputs; j++) {
+                fprintf(connect_weight, "%f\n", l.weights[j]);
+            }
+            fclose(connect_weight);
+        }
+    }
+}
+#endif

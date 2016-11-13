@@ -1,7 +1,7 @@
 GPU=0
 CUDNN=0
 OPENCV=0
-DEBUG=0
+DEBUG=1
 
 ARCH= --gpu-architecture=compute_52 --gpu-code=compute_52
 
@@ -20,7 +20,7 @@ ifeq ($(DEBUG), 1)
 OPTS=-O0 -g
 endif
 
-CFLAGS+=$(OPTS)
+CFLAGS+=$(OPTS) -DCS229_EDIT=1
 
 ifeq ($(OPENCV), 1) 
 COMMON+= -DOPENCV

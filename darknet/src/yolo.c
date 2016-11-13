@@ -333,6 +333,17 @@ void test_yolo(char *cfgfile, char *weightfile, char *filename, float thresh)
     }
 }
 
+#if CS229_EDIT
+void export_weights_yolo(char *cfgfile, char *weightfile)
+{
+    network net = parse_network_cfg(cfgfile);
+    if(weightfile){
+        load_weights(&net, weightfile);
+    }
+    export_weights(net);
+}
+#endif
+
 void run_yolo(int argc, char **argv)
 {
     char *prefix = find_char_arg(argc, argv, "-prefix", 0);
@@ -352,4 +363,7 @@ void run_yolo(int argc, char **argv)
     else if(0==strcmp(argv[2], "valid")) validate_yolo(cfg, weights);
     else if(0==strcmp(argv[2], "recall")) validate_yolo_recall(cfg, weights);
     else if(0==strcmp(argv[2], "demo")) demo(cfg, weights, thresh, cam_index, filename, voc_names, 20, frame_skip, prefix);
+#if CS229_EDIT
+    else if(0==strcmp(argv[2], "export_weights")) export_weights_yolo(cfg, weights);
+#endif
 }
