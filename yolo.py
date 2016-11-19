@@ -14,7 +14,7 @@ class YOLO:
     def create_network(self):
         # network structure is based on darknet yolo-small.cfg
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/cfg/yolov1/yolo-small.cfg
-        self.input_layer = tf.placeholder(tf.float32, shape=[None, 448, 448, 3])
+        self.input_layer = tf.placeholder(tf.float32, shape = [None, 448, 448, 3])
         conv_layer0 = self.create_conv_layer(self.input_layer, 7, 7, 64, 2, 0)
         maxpool_layer1 = self.create_maxpool_layer(conv_layer0, 2, 2, 2)
         conv_layer2 = self.create_conv_layer(maxpool_layer1, 3, 3, 192, 1, 2)
@@ -83,7 +83,7 @@ class YOLO:
         bias = tf.Variable(bias)
         input_layer = tf.Print(input_layer, [input_layer, weight, bias], "convolution")
 
-        # mimic explicit padding used by deepnet...a bit tricky
+        # mimic explicit padding used by darknet...a bit tricky
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/parser.c#L145
         # note that padding integer in yolo-small.cfg actually refers to a boolean value (NOT an acutal padding size)
         d0_pad = int(d0/2)

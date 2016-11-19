@@ -1,0 +1,8 @@
+\begin{thebibliography}{1}
+
+\bibitem{redmon:yolo}
+J.~Redmon, S.~K. Divvala, R.~B. Girshick, and A.~Farhadi.
+\newblock You only look once: Unified, real-time object detection.
+\newblock {\em CoRR}, abs/1506.02640, 2015.
+
+\end{thebibliography}
