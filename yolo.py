@@ -1,15 +1,22 @@
 import argparse
 import os
 import csv
-import cv2
+#import cv2
 import numpy as np
 import tensorflow as tf
+from scipy.misc import imread, imresize
+
+from plot_utils import *
 
 class YOLO:
     def __init__(self, weight_path, checkpoint_path, image_path):
         self.weight_path = weight_path
         self.checkpoint_path = checkpoint_path
         self.image_path = image_path
+        self.num_classes = 20
+        self.S = 7
+        self.B = 2
+        self.use_open_cv = False
 
     def create_network(self):
         # network structure is based on darknet yolo-small.cfg
@@ -138,11 +145,12 @@ class YOLO:
         else:
             return input_layer
 
-    def run_inferrence(self):
+    def run_inference(self):
         self.pretrained_weights = False
         self.create_network()
 
         session = tf.Session()
+        writer = tf.train.SummaryWriter( './data' , session.graph )
         session.run(tf.initialize_all_variables())
         tf.train.Saver().restore(session, self.checkpoint_path)
 
@@ -160,21 +168,36 @@ class YOLO:
         tf.train.Saver().save(session, self.checkpoint_path)
 
     def process_image(self, image_path):
-        img = cv2.imread(image_path)
-        img = cv2.resize(img, (448, 448))
-        # for some reason darknet switches red and blue channels...
-        # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        if self.use_open_cv:
+            img = cv2.imread(image_path)
+            img = cv2.resize(img, (448, 448))
+            # for some reason darknet switches red and blue channels...
+            # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            # Use SciPy
+            img = imread(image_path)
+            img = imresize(img, (448, 448))
+            img = img[...,::-1]
         # darknet scales color values from 0 to 1
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L469
         img = (img / 255.0)
         return img
 
-    def process_prediction(self, prediction):
-        prediction_unflatten = np.reshape(prediction, (7, 7, 30))
-        class_probabilities = prediction_unflatten[:,:,0:19]
-        confidence = prediction_unflatten[:,:,20:21]
-        bounding_boxes = np.reshape(prediction_unflatten[:,:,22:], (7, 7, 2, 4))
+    def process_prediction(self, predictions):
+        """
+        """
+        predictions = np.squeeze( predictions ) # remove 1 from first dim, so not (1,1470)
+        print predictions.shape
+        classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+        end_probs = self.num_classes*(self.S**2)
+        end_confidences = end_probs + self.B*(self.S**2)
+        probs = np.reshape( predictions[0:end_probs], [self.S,self.S,self.num_classes] )
+        confidences = np.reshape( predictions[end_probs:end_confidences], [self.S,self.S,self.B])
+        bboxes = np.reshape( predictions[end_confidences:], [self.S, self.S, self.B, 4] )
+        plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -192,7 +215,7 @@ def main():
     if weight_path:
         yolo.save_checkpoint()
     else:
-        yolo.run_inferrence()
+        yolo.run_inference()
 
 if __name__ == "__main__":
     main()
