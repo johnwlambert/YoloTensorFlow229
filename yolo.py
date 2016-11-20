@@ -191,6 +191,8 @@ class YOLO:
         predictions = np.squeeze( predictions ) # remove 1 from first dim, so not (1,1470)
         print predictions.shape
         classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+        # A bit unclear what the 'l.n' is that they use here
+        # https://github.com/pjreddie/darknet/blob/master/src/detection_layer.c#L236
         end_probs = self.num_classes*(self.S**2)
         end_confidences = end_probs + self.B*(self.S**2)
         probs = np.reshape( predictions[0:end_probs], [self.S,self.S,self.num_classes] )
