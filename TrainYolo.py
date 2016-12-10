@@ -6,6 +6,7 @@
 # TO-DOs
 # HOW TO CALCULATE GT CONFIDENCES? What is GT_{PRED}^{IOU} ?
 
+import tensorflow as tf
 import math
 import numpy as np
 from preprocess_data import *
@@ -17,10 +18,13 @@ import matplotlib
 from matplotlib.legend_handler import HandlerLine2D
 import matplotlib.patches as patches
 
+from YOLO_TrainingNetwork import YOLO_TrainingNetwork
+
 ### FOR DECIDING WHICH BBOXES CORRESPOND TO WHICH GRID CELLS ##########
 NO_IMAGE_FLAG = 0 # COULD MAKE THIS -9999, ETC.
 CONTAINS_IMAGE_FLAG = 1
 #######################################################################
+num_iters = 10e6
 plot_yolo_grid_cells = False
 plot_bbox_centerpoints = False
 plot_im_bboxes = False # True
@@ -133,14 +137,16 @@ def plotGridCellsOnIm(im,ax):
 
 def makeGroundTruthTensors(annotatedImages):
 	"""
-	If there's a bbox center in that grid cell, process and store bbox info there.
+	If center of a bounding box falls into a grid cell, that grid cell is 
+	responsible for detecting that bounding box. So I store that bbox info
+	for that particular grid cell.
 	20 CLASS PROBS , X Y W H C1 , X Y W H C2
 	"""
+	print '=====> Constructing Ground Truth tensors for %d images ====>', len(annotatedImages)
 	listOfImPaths = []
 	listOfGTs = []
-	print 'Num. Images: ', len(annotatedImages)
 	for imNum, annotatedImage in enumerate(annotatedImages):
-		print 'Image: ', imNum
+		#print 'Image: ', imNum
 		image_path = annotatedImage.image_path
 		im = imread(image_path)
 		### PLOTTING ########
@@ -186,7 +192,7 @@ def makeGroundTruthTensors(annotatedImages):
 				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+4 ] = CONF
 				occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
 			else:
-				print 'No more room in grid cell for this bbox.'
+				print 'In Image %d, no more room in grid cell for this bbox.' % (imNum)
 
 		if plot_bbox_centerpoints == True:
 			plt.scatter(x_cent,y_cent)
@@ -199,18 +205,28 @@ def makeGroundTruthTensors(annotatedImages):
 		listOfGTs.append( gt )
 	return listOfImPaths, listOfGTs
 
+def runTrainStep(yoloNet, listOfImPaths,listOfGTs,sess, step):
+	"""
+	INPUTS:
+	-	listOfImPaths: list of strings, each of which is a path to a .jpg file
+	-	listOfGTs: list of n-d arrays, each of which is a 7x7x30 GT Tensor
+	"""
+	print '====> Train Step %d =====>' % (step)
+	minibatchIms, minibatchGTs = sampleMinibatch()
+	feed = { yoloNet.inputIms: minibatchIms , yoloNet.gts : minibatchGTs }
+	trainLossVal = sess.run( [yoloNet.loss],feed_dict=feed )
+	print 'Training loss at step %d: %f' % (step,trainLossVal)
 
-def lossFunction():
-	"""
-	How to change to batch processing, so not processing one by one?
-	"""
 
 if __name__ == '__main__':
 	annotatedImages = getData()
 	listOfImPaths, listOfGTs = makeGroundTruthTensors(annotatedImages)
 	if plot_im_bboxes == True:
 		plotGroundTruth(annotatedImages)
-	#minibatch = sampleMinibatch(annotatedImages)
+	yoloNet = YOLO_TrainingNetwork()
+	with tf.Session() as sess:
+		for step in range(num_iters):
+			runTrainStep(yoloNet, listOfImPaths,listOfGTs,sess, step)
 
 	# Compute mean image, subtract by it
 	# Divide by standard deviation 
