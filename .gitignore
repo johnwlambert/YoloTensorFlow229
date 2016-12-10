@@ -89,3 +89,8 @@ ENV/
 .ropeproject
 
 *.ckpt
+VOCdevkit
+VOCtrainval_06-Nov-2007.tar
+paper/yoloflow.synctex.gz
+*.blg
+paper/yoloflow.aux
