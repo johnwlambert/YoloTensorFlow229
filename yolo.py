@@ -183,6 +183,7 @@ class YOLO:
         return plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
 
     def process_video(self, video_path):
+        frame_detections = []
         cap = cv2.VideoCapture(video_path)
         w = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT))
@@ -191,7 +192,10 @@ class YOLO:
         while cap.isOpened():
             ret, frame = cap.read()
 
-            frame_out = self.process_image(frame)
+            frame_out, bounding_boxes = self.process_image(frame)
+            frame_detections.append(bounding_boxes)
+            for box in bounding_boxes:
+                print box.category
             #cv2.imwrite('data/' + str(i) + '.png', frame_out)
             out.write(frame_out)
         cap.release()
@@ -212,7 +216,7 @@ def main():
     yolo = YOLO(weight_path, checkpoint_path)
     if args.image_path:
         image_path = os.path.abspath(os.path.expanduser(args.image_path))
-        img = yolo.process_image(cv2.imread(image_path))
+        img, bounding_boxes = yolo.process_image(cv2.imread(image_path))
         cv2.imwrite('data/out.png', img)
     if args.video_path:
         video_path = os.path.abspath(os.path.expanduser(args.video_path))
