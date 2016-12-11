@@ -152,14 +152,6 @@ class YOLO:
         else:
             return input_layer
 
-    def run_inference(self, image_path):
-        #writer = tf.train.SummaryWriter( './data' , session.graph )
-        img_resize, img = self.process_image(image_path)
-        # add batch dimension
-        input = np.expand_dims(img_resize, axis=0)
-        prediction = self.session.run(self.output_layer, feed_dict = {self.input_layer: input, self.dropout_prob: 1})
-        self.process_prediction(img, prediction)
-
     def process_image(self, image_path):
         img = cv2.imread(image_path)
         img_resize = cv2.resize(img, (448, 448))
@@ -169,13 +161,11 @@ class YOLO:
         # darknet scales color values from 0 to 1
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L469
         img_resize = (img_resize / 255.0) * 2.0 - 1.0
-        return img_resize, img
 
-    def process_video(self, video_path):
-        vid = cv2.VideoCapture(video_path)
+        input = np.expand_dims(img_resize, axis=0)
+        predictions = self.session.run(self.output_layer, feed_dict = {self.input_layer: input, self.dropout_prob: 1})
 
-    def process_prediction(self, img, predictions):
-        predictions = np.squeeze( predictions ) # remove 1 from first dim, so not (1,1470)
+        predictions = np.squeeze(predictions) # remove 1 from first dim, so not (1,1470)
         classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
         # A bit unclear what the 'l.n' is that they use here
         # https://github.com/pjreddie/darknet/blob/master/src/detection_layer.c#L236
@@ -186,9 +176,10 @@ class YOLO:
         bboxes = np.reshape( predictions[end_confidences:], [self.S, self.S, self.B, 4] )
 
         img_out = img.copy()
-        img_out = plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
-        cv2.imwrite('data/out.png', img_out)
+        return plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
 
+    def process_video(self, video_path):
+        vid = cv2.VideoCapture(video_path)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -205,7 +196,8 @@ def main():
     yolo = YOLO(weight_path, checkpoint_path)
     if args.image_path:
         image_path = os.path.abspath(os.path.expanduser(args.image_path))
-        yolo.run_inference(image_path)
+        img = yolo.process_image(image_path)
+        cv2.imwrite('data/out.png', img)
     if args.video_path:
         video_path = os.path.abspath(os.path.expanduser(args.video_path))
         print video_path
