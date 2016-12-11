@@ -1,10 +1,9 @@
 import argparse
 import os
 import csv
-#import cv2
+import cv2
 import numpy as np
 import tensorflow as tf
-from scipy.misc import imread, imresize
 
 from plot_utils import *
 
@@ -16,7 +15,6 @@ class YOLO:
         self.num_classes = 20
         self.S = 7
         self.B = 2
-        self.use_open_cv = False
 
     def create_network(self):
         # network structure is based on darknet yolo-small.cfg
@@ -154,11 +152,11 @@ class YOLO:
         session.run(tf.initialize_all_variables())
         tf.train.Saver().restore(session, self.checkpoint_path)
 
-        img = self.process_image(self.image_path)
+        img_resize, img = self.process_image(self.image_path)
         # add batch dimension
-        input = np.expand_dims(img, axis=0)
+        input = np.expand_dims(img_resize, axis=0)
         prediction = session.run(self.output_layer, feed_dict = {self.input_layer: input, self.dropout_prob: 1})
-        self.process_prediction(prediction)
+        self.process_prediction(img, prediction)
 
     def save_checkpoint(self):
         self.pretrained_weights = True
@@ -168,24 +166,17 @@ class YOLO:
         tf.train.Saver().save(session, self.checkpoint_path)
 
     def process_image(self, image_path):
-
-        if self.use_open_cv:
-            img = cv2.imread(image_path)
-            img = cv2.resize(img, (448, 448))
-            # for some reason darknet switches red and blue channels...
-            # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        else:
-            # Use SciPy
-            img = imread(image_path)
-            img = imresize(img, (448, 448))
-            img = img[...,::-1]
+        img = cv2.imread(image_path)
+        img_resize = cv2.resize(img, (448, 448))
+        # for some reason darknet switches red and blue channels...
+        # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
+        img_resize = cv2.cvtColor(img_resize, cv2.COLOR_BGR2RGB)
         # darknet scales color values from 0 to 1
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L469
-        img = (img / 255.0)
-        return img
+        img_resize = (img_resize / 255.0) * 2.0 - 1.0
+        return img_resize, img
 
-    def process_prediction(self, predictions):
+    def process_prediction(self, img, predictions):
         """
         """
         predictions = np.squeeze( predictions ) # remove 1 from first dim, so not (1,1470)
@@ -198,7 +189,9 @@ class YOLO:
         probs = np.reshape( predictions[0:end_probs], [self.S,self.S,self.num_classes] )
         confidences = np.reshape( predictions[end_probs:end_confidences], [self.S,self.S,self.B])
         bboxes = np.reshape( predictions[end_confidences:], [self.S, self.S, self.B, 4] )
-        plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
+
+        img_out = img.copy()
+        plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
 
 
 def main():
