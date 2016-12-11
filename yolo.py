@@ -9,6 +9,7 @@ from plot_utils import *
 
 class YOLO:
     def __init__(self, weight_path, checkpoint_path):
+        self.debug = False
         self.weight_path = weight_path
         self.checkpoint_path = checkpoint_path
         self.num_classes = 20
@@ -95,7 +96,8 @@ class YOLO:
 
         weight = tf.Variable(weight)
         bias = tf.Variable(bias)
-        input_layer = tf.Print(input_layer, [input_layer, weight, bias], "convolution")
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer, weight, bias], "convolution")
 
         # mimic explicit padding used by darknet...a bit tricky
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/parser.c#L145
@@ -132,16 +134,19 @@ class YOLO:
 
         weight = tf.Variable(weight)
         bias = tf.Variable(bias)
-        input_layer = tf.Print(input_layer, [input_layer, weight, bias], 'connected')
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer, weight, bias], 'connected')
 
         return self.activation(tf.add(tf.matmul(input_layer, weight), bias), leaky)
 
     def create_maxpool_layer(self, input_layer, d0, d1, stride):
-        input_layer = tf.Print(input_layer, [input_layer], 'pool')
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer], 'pool')
         return tf.nn.max_pool(input_layer, ksize = [1, d0, d1, 1], strides = [1, stride, stride, 1], padding = 'SAME')
 
     def create_dropout_layer(self, input_layer, prob):
-        input_layer = tf.Print(input_layer, [input_layer], 'dropout')
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer], 'dropout')
         return tf.nn.dropout(input_layer, prob)
 
     def activation(self, input_layer, leaky = True):
@@ -152,8 +157,7 @@ class YOLO:
         else:
             return input_layer
 
-    def process_image(self, image_path):
-        img = cv2.imread(image_path)
+    def process_image(self, img):
         img_resize = cv2.resize(img, (448, 448))
         # for some reason darknet switches red and blue channels...
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
@@ -179,7 +183,19 @@ class YOLO:
         return plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
 
     def process_video(self, video_path):
-        vid = cv2.VideoCapture(video_path)
+        cap = cv2.VideoCapture(video_path)
+        w = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT))
+        out = cv2.VideoWriter('data/output.avi', cv2.cv.CV_FOURCC(*'XVID'), 20.0, (w, h))
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+
+            frame_out = self.process_image(frame)
+            #cv2.imwrite('data/' + str(i) + '.png', frame_out)
+            out.write(frame_out)
+        cap.release()
+        out.release()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -196,11 +212,11 @@ def main():
     yolo = YOLO(weight_path, checkpoint_path)
     if args.image_path:
         image_path = os.path.abspath(os.path.expanduser(args.image_path))
-        img = yolo.process_image(image_path)
+        img = yolo.process_image(cv2.imread(image_path))
         cv2.imwrite('data/out.png', img)
     if args.video_path:
         video_path = os.path.abspath(os.path.expanduser(args.video_path))
-        print video_path
+        yolo.process_video(video_path)
 
 if __name__ == "__main__":
     main()
