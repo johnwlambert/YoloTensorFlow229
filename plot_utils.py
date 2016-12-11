@@ -37,7 +37,7 @@ def plot_detections_on_im( im , probs_given_obj , prob_obj , bboxes, classes, th
                     bot = min( y + h/2., imHeight-1 )
                     cv2.rectangle(im, (int(left), int(top)), (int(right), int(bot)), (0, 255, 255), 2)
                     cv2.putText(im, class_name, (int(left), int(top)), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2);
-    cv2.imwrite('dog_out.png', im)
+    return im
 
 def plotSplitMetric( complete_train_loss_history, complete_val_loss_history, new_dir_path, metricName, iterNum, complete_test_loss_history=None ):
     """
