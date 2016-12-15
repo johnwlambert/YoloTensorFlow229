@@ -1,5 +1,5 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
-# Dec 14, 2016
+# Dec 15, 2016
 # For Training YOLO
 
 import math
@@ -71,7 +71,6 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 	-	minibatchGTs: n-d array, shape [num_gtbox, 73=NUM_CLASSES+4+49] (gt labels)
 	"""
 	# print '=====> Sampling Ground Truth tensors for %d images ====>' % (len(annotatedImages))
-	listOfGTs = []
 
 	batch_size = 1
 	mask = np.random.choice( len(annotatedImages) , batch_size ) # RANDOM SAMPLE OF THE INDICES
@@ -87,6 +86,11 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 	   
 	# if imNum > ARBITRARY_STOP_LOADING_IMS_NUMBER_FOR_DEBUGGING:
 	# 	break
+
+	gt_classes = np.zeros((49,20))
+	gt_conf = np.zeros((49,4))
+	ind_obj_i = np.zeros((49,20))
+	gt_boxes_j0 = np.zeros((49,4))
 	
 	im = imread(image_path)
 	if plot_yolo_grid_cells or plot_bbox_centerpoints:
@@ -107,21 +111,29 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 		gridCellCol = int(gridCellCol)
 		classIdx = classnameToIdxDict[ bbox.category ] # convert string to int
 		coverageMap = computeCoverageMap(im, bbox) # Returns 49x1 coverage map
+
+  		# indicating if that grid cell contains any object
+		ind_obj_i = np.logical_or( ind_obj_i, coverageMap).astype(np.int64)
+
 		if occupiedSlot[gridCellRow,gridCellCol,0] == NO_IMAGE_FLAG:
 			j = 0 # 2nd box slot for this grid cell
-			classGTs = np.zeros(NUM_CLASSES)
-			classGTs[classIdx] = 1
+			gt_classes[gridCellRow * 7 + gridCellCol, classIdx ] = 1
 			xywh = np.array([ normalizedXCent, normalizedYCent, math.sqrt(normalizedW), math.sqrt(normalizedH) ])
-			gt = np.hstack(( classGTs , xywh, coverageMap)) # coverage map is the confidence
+			bboxGT = np.hstack(( classGTs , xywh, coverageMap)) # coverage map is the confidence
+			gt_boxes_j0[ gridCellRow * 7 + gridCellCol, bboxGT]
 			occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
 
-		elif occupiedSlot[gridCellRow,gridCellCol,1] == NO_IMAGE_FLAG:
-			j = 1 # 2nd box slot for this grid cell
-			classGTs = np.zeros(NUM_CLASSES)
-			classGTs[classIdx] = 1
-			xywh = np.array([ normalizedXCent, normalizedYCent, math.sqrt(normalizedW), math.sqrt(normalizedH) ])
-			gt = np.hstack(( classGTs , xywh, coverageMap)) # coverage map is the confidence
-			occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
+			# values in each of 4 columns are identical (tiled/repmatted). Object here at cell i!
+			gt_conf[gridCellRow * 7 + gridCellCol,:] = np.ones((1,4))
+
+  		# IGNORING J=1 IN SIMPLIFIED, CURRENT CASE
+		# elif occupiedSlot[gridCellRow,gridCellCol,1] == NO_IMAGE_FLAG:
+		# 	j = 1 # 2nd box slot for this grid cell
+		# 	classGTs = np.zeros(NUM_CLASSES)
+		# 	classGTs[classIdx] = 1
+		# 	xywh = np.array([ normalizedXCent, normalizedYCent, math.sqrt(normalizedW), math.sqrt(normalizedH) ])
+		# 	gt = np.hstack(( classGTs , xywh, coverageMap)) # coverage map is the confidence
+		# 	occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
 		else:
 			print 'In Image %d, no more room in some grid cell for this bbox.' % (imNum)
 
@@ -132,10 +144,10 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 		plt.show()
 		plt.gcf().set_size_inches(15, 12)
 
-	listOfGTs.append( gt )
+
+
 	minibatchIms = img
-	minibatchGTs = np.asarray(listOfGTs) #np.asarray(listOfGTs[ARBITRARY_INDEX])
-	return minibatchIms, minibatchGTs
+	return minibatchIms, (gt_conf,gt_classes,ind_obj_i,gt_boxes_j0)
 
 
 def normXYToGrid(x_cent,y_cent,im):

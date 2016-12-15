@@ -1,5 +1,5 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
-# Dec 14, 2016
+# Dec 15, 2016
 
 import tensorflow as tf
 import numpy as np
@@ -38,9 +38,13 @@ class YOLO_TrainingNetwork:
         """
         self.input_layer = tf.placeholder(tf.float32, shape = [None, 448, 448, 3], name='Inputs')
         # GTs have shape 73=NUM_CLASSES+4+49
-        self.gts = tf.placeholder(tf.float32, shape = [None, NUM_CLASSES + 4 + (7*7) ], name='GTs')
+        #self.gts = tf.placeholder(tf.float32, shape = [None, NUM_CLASSES + 4 + (7*7) ], name='GTs')
+        self.gt_conf = tf.placeholder(tf.float32, shape=[49,4],name='GT_CONF')
+        self.gt_classes = tf.placeholder(tf.float32,shape=[49,20],name='GT_CLASSES')
+        self.ind_obj_i = tf.placeholder(tf.float32, shape=[7*7],name='ind_obj_i')
         # dropout prob is only set <1 during training
         self.dropout_prob = tf.placeholder(tf.float32)
+        self.gt_boxes_j0 = tf.placeholder(tf.float32,shape=[49,4],name= 'gt_boxes_j0')
 
     def create_network(self):
         # network structure is based on darknet yolo-small.cfg
@@ -91,21 +95,20 @@ class YOLO_TrainingNetwork:
         print 'Confidences: ', self.confidences.get_shape().as_list()
         print 'Bboxes: ', self.bboxes.get_shape().as_list()
 
-        self.class_probs = tf.reshape( self.class_probs,shape=[1,NUM_GRID,NUM_GRID,NUM_CLASSES])
-        self.confidences = tf.reshape( self.confidences,shape=[1,NUM_GRID,NUM_GRID,2])
-        self.bboxes = tf.reshape(self.bboxes, shape=[1,NUM_GRID,NUM_GRID,2*4])
+        self.class_probs = tf.reshape( self.class_probs,shape=[NUM_GRID*NUM_GRID,NUM_CLASSES])
+        self.confidences = tf.reshape( self.confidences,shape=[NUM_GRID*NUM_GRID,2])
+        self.bboxes = tf.reshape(self.bboxes, shape=[NUM_GRID*NUM_GRID,2*4])
         #bboxes = np.reshape( predictions[end_confidences:], [self.S, self.S, self.B, 4] )
         #pred_boxes_arr = pred_labels[:, :, :, NUM_CLASSES : NUM_CLASSES + NUM_BOX * 4]
 
-        self.loss = computeYoloLossTF( self.class_probs, self.confidences, self.bboxes, self.gts)
-
+        self.loss = computeYoloLossTF( self.class_probs, self.confidences, self.bboxes, self.gt_conf,self.gt_classes, self.ind_obj_i, self.gt_boxes_j0)
         self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
 
         # tf.contrib.metrics.streaming_sparse_average_precision_at_k(predictions, labels, k, weights=None, metrics_collections=None, updates_collections=None, name=None)
 
         # self.final_class_probs = tf.cross( self.class_probs, self.confidences )
-        # # can do tf.where, or tf.greater to see if greater than thresh
-        # # otherwise make it zero
+        # can do tf.where, or tf.greater to see if greater than thresh
+        # otherwise make it zero
 
     def create_conv_layer(self, input_layer, d0, d1, filters, stride, weight_index,name):
         channels = int(input_layer.get_shape()[3])
@@ -115,8 +118,6 @@ class YOLO_TrainingNetwork:
             weight = tf.get_variable( 'w_%s' % (name), weight_shape, initializer=tf.contrib.layers.xavier_initializer_conv2d())
             bias = tf.get_variable( 'b_%s' % (name), bias_shape, initializer=tf.constant_initializer(0.0))
 
-        #weight = tf.random_normal(weight_shape, stddev = 0.35, dtype = tf.float32)
-        #bias = tf.random_normal(bias_shape, stddev = 0.35, dtype = tf.float32)
         if self.pretrained_weights:
             weight = np.empty(weight_shape, dtype = np.float32)
             weight_trained_path = os.path.join(self.weight_path, 'conv_weight_layer' + str(weight_index + 1) + '.csv')
@@ -134,10 +135,6 @@ class YOLO_TrainingNetwork:
             bias_trained = np.genfromtxt(bias_trained_path, delimiter = ',', dtype = np.float32)
             for i in range(bias_shape[0]):
                 bias[i] = bias_trained[i]
-
-        # weight = tf.Variable(weight)
-        # bias = tf.Variable(bias)
-        #input_layer = tf.Print(input_layer, [input_layer, weight, bias], "convolution")
 
         # mimic explicit padding used by darknet...a bit tricky
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/parser.c#L145
@@ -167,8 +164,7 @@ class YOLO_TrainingNetwork:
         with tf.variable_scope(name+'_fully_connected_weights'):
             weight = tf.get_variable('w_%s' % (name) , weight_shape, initializer=tf.contrib.layers.xavier_initializer())
             bias = tf.get_variable('b_%s' % (name) , bias_shape, initializer=tf.constant_initializer(0.0))
-        #weight = tf.random_normal(weight_shape, stddev = 0.35, dtype = tf.float32)
-        #bias = tf.random_normal(bias_shape, stddev = 0.35, dtype = tf.float32)
+
         if self.pretrained_weights:
             weight = np.empty(weight_shape, dtype = np.float32)
             weight_trained_path = os.path.join(self.weight_path, 'connect_weight_layer' + str(weight_index + 1) + '.csv')
@@ -184,10 +180,6 @@ class YOLO_TrainingNetwork:
             bias_trained = np.genfromtxt(bias_trained_path, delimiter = ',', dtype = np.float32)
             for i in range(bias_shape[0]):
                 bias[i] = bias_trained[i]
-
-        # weight = tf.Variable(weight)
-        # bias = tf.Variable(bias)
-        #input_layer = tf.Print(input_layer, [input_layer, weight, bias], 'connected')
 
         return self.activation(tf.add(tf.matmul(input_layer, weight), bias), leaky)
 

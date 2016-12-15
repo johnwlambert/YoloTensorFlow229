@@ -1,5 +1,5 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
-# Dec 14, 2016
+# Dec 15, 2016
 
 import os
 import numpy as np
@@ -8,16 +8,20 @@ import numpy as np
 
 EPSILON = 1e-5
 
-
-# FORMAT detections like
-# detObj = { classIdx: 999999, bbox: [99999,9999,9999,9999]}
-
-def computeMeanAveragePrecision(BB,BBGT):
+def computeMeanAveragePrecision(detections, splitType):
 	"""
+	INPUTS:
+	-	detections: python list of objects with fields: class_given_obj, confidences, bboxes
+	OUTPUTS:
+	-	mAP: float
 	For each class, we compute average precision (AP)
 	This score corresponds to the area under the precision-recall curve.
 	The mean of these numbers is the mAP.
 	"""
+	# SORT THEM FIRST
+	BB = [BLAH BLAH for BLAH BLAH in BLAH BLAH]# for our favorite volleyball o
+	BBGT [BLAH BLAH for BLAH BLAH in BLAH BLAH]
+
 	aps = []
 	for i, cls in enumerate(CLASSES):
 	    rec, prec, ap = matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5)
@@ -32,6 +36,13 @@ def computeMeanAveragePrecision(BB,BBGT):
 	mAP = np.mean(aps)
 	return mAP
 
+
+	if splitType == 'val':
+		data_set_size = VAL_SET_SIZE
+	elif splitType == 'test':
+		data_set_size = TEST_SET_SIZE
+	BB = np.zeros((TEST_SET_SIZE,4))
+	BBGT = []
 
 def naiveAPCalculation(rec,prec):
 	"""
@@ -125,6 +136,17 @@ def matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5):
 	bounding boxes hitting on a same ground truth, only one of
 	them is counted as correct, and all the others are treated as false alarms
 	"""
+
+	# confidence = np.array([float(x[1]) for x in splitlines])
+    # BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
+
+    # sort by confidence
+    sorted_ind = np.argsort(-confidence)
+    sorted_scores = np.sort(-confidence)
+    BB = BB[sorted_ind, :]
+    image_ids = [image_ids[x] for x in sorted_ind]
+
+
 	# go down detections and mark TPs and FPs
 	nd = len(image_ids)
 	tp = np.zeros(nd) # True positives
@@ -156,6 +178,8 @@ def matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5):
 	# ground truth
 	prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
 	ap = voc_ap(rec, prec, use_07_metric)
+	# My implementation vs. Ross Girshick's implementation.
+	assert (voc_ap(rec, prec) - naiveAPCalculation(rec,prec)) < EPSILON
 	return rec, prec, ap
 	
 

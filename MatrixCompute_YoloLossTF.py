@@ -1,6 +1,6 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
-# Acknowledgment to Xuerong Xiao for helping write much of the code
-# Dec. 14, 2016
+# Acknowledgment to Xuerong Xiao for code suggestions
+# Dec. 15, 2016
 
 
 import numpy as np
@@ -37,7 +37,7 @@ def sqrt_wh(box):
   return box_new
 
 
-def square_wh(box):
+def square_wh(boxes):
   """
   Take the square of wh regardless of pred or true boxes given
   INPUTS:
@@ -45,11 +45,11 @@ def square_wh(box):
   OUTPUTS:
   - 
   """
-  if len(box.get_shape().as_list()) == 4:
-    box_new = tf.concat(3, [box[:, :, :, : 2], tf.square(box[:, :, :, 2 :])])
-  else:
-    print "BOXES HAVE WRONG SHAPE !!!"
-  return box_new
+  #if len(box.get_shape().as_list()) == 4:
+  boxes_wh_squared = tf.concat(1, [boxes[:, 2], tf.square(boxes[:, 2 :])])
+  #else:
+  #  print "BOXES HAVE WRONG SHAPE !!!"
+  return boxes_wh_squared
 
 
 def compute_iou(box_pred, box_true):
@@ -94,17 +94,11 @@ def compute_ious(pred_boxes, gtbox):
 
 
 
-def computeYoloLossTF(pred_classes,pred_p_obj ,pred_boxes_arr, gt_labels):
+def computeYoloLossTF( pred_classes, pred_conf, pred_boxes, gt_conf, gt_classes, ind_obj_i, gt_boxes_j0):
   """
-  INPUTS:
-  - pred_p_obj are the confidences
-  - pred_labels: [batch=1, 7, 7, 20+2*5], batch has to be 1?!
-              xy norm to grid, wh square root (out of network)
-      PRETRAINED WEIGHTS REQUIRE: [20 CLASS PROBS , C1,C2, X Y W H, X Y W H]
-      CURRENTLY, IN LOSS FN, TF MODEL REQUIRES: [20 CLASSES, XYWH,XYWH,C1,C2] I THINK?
+  As a simplification, right now I only match one bounding box predictor
+  to 1 ground truth, in each grid cell
 
-  - gt_labels: xy norm to image, wh square root (read from file)
-              [num_gtbox, 73=NUM_CLASSES+4+49]
   when compute iou, need to have pred boxes norm to image, wh as is
   when compute coord loss, need to have true boxes norm to grid, wh square root
 
@@ -117,83 +111,69 @@ def computeYoloLossTF(pred_classes,pred_p_obj ,pred_boxes_arr, gt_labels):
 
   We assign one predictor to be "responsible" for predicting an object 
   based on which prediction has the highest current IOU with the ground truth. 
+
+  NEW INPUTS:
+  - pred_classes: 49 x 20
+  - pred_conf: 49 x 2 array
+  - pred_boxes: 49 x 8 array
+  - gt_boxes_j0; 49 x 4
+  - I'M IGNORING THIS FOR NOW IN THE SIMPLIFICATION -- gt_boxes_j1: 49 x 4
+  - gt_conf: 49 x 4, values in each of 4 columns are identical (tiled/repmatted)
+  - gt_classes: 49 x 20
+  - ind_obj_i: 49 x 20, indicating if that grid cell contains any object
   """
-  gt_classes = tf.reshape(gt_labels[:, 0 : NUM_CLASSES], [-1, 1, 1, NUM_CLASSES]) # [num_gt_box,1,1,NUM_CLASSES]
-  gt_pr_object = tf.reshape(gt_labels[:, NUM_CLASSES + 4 : ], [-1, 7, 7, 1]) # [num_gt_box,1,1,4]
-  gt_boxes = tf.reshape(gt_labels[:, NUM_CLASSES : NUM_CLASSES + 4], [-1, 1, 1, 4]) # [num_gt_box,7,7,1]
+  pred_conf_j0 = pred_conf[:,0]
+  pred_conf_j1 = pred_conf[:,1]
+  ############ BOX LOSS ##################################################
+  pred_boxes = tf.reshape( pred_boxes, shape=[49,2,4] )
+  pred_box_j0 = pred_boxes[:,0,:] # 49 x 4 array
+  pred_box_j1 = pred_boxes[:,1,:] # 49 x 4 array
+  pred_box_j0 = tf.mul( pred_box_j0 , gt_conf ) # multiply by 1s or 0s
+  pred_box_j1 = tf.mul( pred_box_j1 , gt_conf ) # multiply by 1s or 0s 
+  # NOW the predictions in wrong cells are zeroed out
+  j0_coord_loss = tf.reduce_sum(tf.square(pred_box_j0 - gt_boxes_j0), reduction_indices=[1] )
+  squared_gt_boxes_j0 = square_wh(gt_boxes_j0)
+  squared_pred_j0_boxes = square_wh(pred_j0_boxes)
+  squared_pred_j1_boxes = square_wh(pred_j1_boxes)
+  # For each of the predicted boxes in each grid cell, we check if B_1 or B_2 has a higher IOU with GT
+  ious = compute_ious( squared_pred_j0_boxes, squared_gt_boxes_j0 )
+  temp_ious = compute_ious( squared_pred_j1_boxes, squared_gt_boxes_j0 )
+  mask_temp = tf.greater( temp_ious, ious )
+  final_ious = tf.select(mask_temp, temp_ious, ious )
+  j1_coord_loss = tf.reduce_sum(tf.square(pred_box_j1 - gt_boxes_j0), reduction_indices=[1] )
+  box_loss = tf.select(mask_temp, j0_coord_loss, j1_coord_loss )
+  box_loss = LAMBDA_COORD * tf.reduce_sum(box_loss, reduction_indices=[0])
+  ##############################################################################
 
-  print 'Predicted Box Arr Shape: ', pred_boxes_arr.get_shape().as_list()
-  pred_boxes = [pb for pb in tf.split(3, NUM_BOX, pred_boxes_arr)]
+  ############ OBJECT LOSS ##################################################
+  # NOW ZERO OUT THE predicted_CONFIDENCES if no object there
+  pred_conf_j0 *= gt_conf[:,0]
+  pred_conf_j1 *= gt_conf[:,0]
+  # Now only one of those predictors is doing the work. Mask out the other
+  j0_mask = tf.logical_and( tf.greater( pred_conf_j0, tf.zeros_like(pred_conf_j0)) )
+  j1_mask = tf.logical_and( tf.logical_not( tf.greater( pred_conf_j1, tf.zeros_like(pred_conf_j1))))
+  pred_conf_j0 = tf.select(j0_mask, pred_conf_j0, tf.zeros_like(pred_conf_j0) )
+  pred_conf_j1 = tf.select(j1_mask, pred_conf_j1, tf.zeros_like(pred_conf_j1) )
+  j0_obj_loss = tf.square(pred_conf_j0 - gt_conf[:,0])
+  j1_obj_loss = tf.square(pred_conf_j1 - gt_conf[:,0])
+  obj_loss = tf.select(mask_temp, j0_obj_loss, j1_obj_loss )
+  obj_loss = tf.mul( final_ious, obj_loss )
+  obj_loss = tf.reduce_sum(obj_loss, reduction_indices=[0])
+  ##############################################################################
 
-  # Threshold the object probabilities
-  mask_coord = tf.greater(pred_p_obj, THRESHOLD * tf.ones_like(pred_p_obj))
-  # Select either the predicted confidence or zero
-  pred_masked = tf.select(mask_coord, pred_p_obj, tf.zeros_like(pred_p_obj))
+  ############ NO-OBJECT LOSS ##################################################
+  opposite_mask = tf.logical_not( temp_mask )
+  noobj_loss = tf.select(mask_temp, j0_obj_loss, j1_obj_loss )
+  noobj_loss = tf.mul( noobj_loss, final_ious )
+  noobj_loss = LAMBDA_NOOBJ * tf.reduce_sum(noobj_loss, reduction_indices=[0])
+  ##############################################################################
 
-  for pb in pred_boxes:
-    print 'Predicted Box Shape: ', pb.get_shape().as_list()
+  ############ COMPLETED CLASS LOSS ############################################
+  masked_pred_classes = tf.mul( ind_obj_i, pred_classes) # both are 49 x 20
+  class_loss = gt_classes - masked_pred_classes
+  class_loss = tf.square(class_loss)
+  class_loss = tf.reduce_sum(class_loss, reduction_indices=[1]) # along all classes
+  class_loss = tf.reduce_sum(class_loss, reduction_indices=[0]) # along all boxes
+  #############################################################################
 
-  print 'GT Box Shape: ', gt_boxes.get_shape().as_list()
-  with tf.variable_scope('coord_loss'):
-    box_loss = [tf.reduce_sum(tf.square(pb - gt_boxes), reduction_indices=3, keep_dims=True) \
-                for pb in pred_boxes]
-    # BOX LOSS IS A LIST OF LOSSES FOR EACH BOX
-    squared_pred_list = [square_wh(pb) for pb in pred_boxes]
-    ious = compute_ious(squared_pred_list, square_wh(gt_boxes))
-
-    obj_loss_tmp = tf.square(pred_p_obj - gt_pr_object)
-
-    # For each of the predicted boxes in each grid cell, we check if B_1 or B_2 has a higher IOU 
-    # Find which predicted boxes have largest IOU with the ground truth?
-    # AT THIS POINT WE COMPLETELY FORGET ABOUT THE GRID CELLS
-    temp_max_iou = ious[:, :, :, 0 : 1]
-    temp_coord_loss = box_loss[0]
-    temp_obj_loss = obj_loss_tmp[:, :, :, 0 : 1]
-    for i in range(NUM_BOX - 1):
-      mask_temp = tf.greater(temp_max_iou, ious[:, :, :, i + 1 : i + 2])
-      temp_max_iou = tf.select(mask_temp, temp_max_iou, ious[:, :, :, i + 1 : i + 2])
-      temp_coord_loss = tf.select(mask_temp, temp_coord_loss, box_loss[i + 1])
-      print "temp_coord_loss: ", temp_coord_loss
-      temp_obj_loss = tf.select(mask_temp, temp_obj_loss, obj_loss_tmp[:, :, :, i + 1 : i + 2])
-
-    # pick largest value along the last dimension of ious, use the corresp. loss
-
-    coord_loss = LAMBDA_COORD * tf.mul(gt_pr_object, temp_coord_loss)
-
-  with tf.variable_scope('obj_loss'):
-    obj_loss = LAMBDA_COORD * tf.mul(gt_pr_object, temp_obj_loss)
-
-  with tf.variable_scope('noobj_loss'):
-    noobj_loss = LAMBDA_NOOBJ * tf.mul(1 - gt_pr_object, temp_obj_loss)    # (?, 7, 7, 1)
-
-  with tf.variable_scope('class_loss'):
-    classes_diff = tf.mul(gt_pr_object, pred_classes - gt_classes)
-    class_loss = tf.reduce_sum(tf.square(classes_diff), reduction_indices=3)
-    class_loss = tf.reshape(class_loss, [-1, 7, 7, 1])
-
-  with tf.variable_scope('total_loss'):
-    total_loss = coord_loss + obj_loss + noobj_loss + class_loss
-    # One loss per grid cell, i.e. total_loss has shape [:,7,7,1]
-    loss = tf.reduce_mean(tf.reduce_sum(total_loss, reduction_indices=[1,2,3]), reduction_indices=0)
-
-  print loss.get_shape().as_list()
-  return loss
-
-
-
-
-
-
-
-
-#   # Each grid cells also predicts conditional class probabilities, Pr(Classi |Object). 
-#   # These probabilities are conditioned on the grid cell containing an object.
-#   # Why not just at test time do cross product?
-#   classes_diff = tf.mul(true_prob_obj, pred_classes - gt_classes)
-#   class_loss = tf.reduce_sum(tf.square(classes_diff), reduction_indices=3)
-#   # Why not turn into a scalar below?
-#   class_loss = tf.reshape(class_loss, [-1, 7, 7, 1])
-
-
-
-
+  return box_loss + obj_loss + noobj_loss + class_loss

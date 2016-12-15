@@ -1,6 +1,6 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
 # To Train YOLO
-# Dec 14, 2016
+# Dec 15, 2016
 
 
 def plotGroundTruth(annotatedImages):

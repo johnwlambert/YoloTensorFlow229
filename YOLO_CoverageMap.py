@@ -1,7 +1,7 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
 # YOLO_CoverageMap
 # Compute ground truth object coverage map across 7x7 grid cells, indicator variable
-# Dec 14, 2016
+# Dec 15, 2016
 
 import numpy as np
 from scipy.misc import imread, imresize

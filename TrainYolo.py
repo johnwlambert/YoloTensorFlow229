@@ -1,6 +1,6 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
 # CS 229, Stanford University
-# December 14, 2016
+# December 15, 2016
 
 
 # TO-DO:
@@ -39,8 +39,11 @@ plot_im_bboxes = False # True
 getPickledData = True
 vocImagesPklFilename = 'VOC_AnnotatedImages.pkl'
 CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
-voc_data_path = '/Users/johnlambert/Documents/Stanford_2016-2017/CS_229/229CourseProject/YoloTensorFlow229/VOCdevkit/'
+voc_data_path = '/Users/johnlambert/Documents/Stanford_2016-2017/CS_229/229CourseProject/YoloTensorFlow229/VOCdevkit_2012/'
 numVar = 5
+
+VAL_SET_SIZE = 501
+TEST_SET_SIZE = 502
 #######################################################################
 
 
@@ -55,15 +58,21 @@ def runTrainStep(yoloNet, annotatedImages,sess, step):
 	OUTPUTS:
 	-	N/A
 	"""
-	minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
+	minibatchIms, minibatchGT = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
 	minibatchIms = np.expand_dims( minibatchIms, 0)
-	minibatchGTs = minibatchGTs.astype(np.float32)
-	minibatchGTs = minibatchGTs.astype(np.float32) # (NUM_GT_BOXES_IN_1_IMAGE, 73)
+	gt_conf,gt_classes,ind_obj_i,gt_boxes_j0 = minibatchGT
+	gt_conf = gt_conf.astype(np.float32)
+	gt_classes = gt_classes.astype(np.float32)
+	ind_obj_i = ind_obj_i.astype(np.float32)
+	gt_boxes_j0 = gt_boxes_j0.astype(np.float32)
+
 	## FEED DROPOUT 0.5 AT TRAIN TIME, 1.0 AT TEST TIME #######
-	feed = { yoloNet.input_layer: minibatchIms , yoloNet.gts : minibatchGTs, yoloNet.dropout_prob: TRAIN_DROP_PROB }
+	feed = { yoloNet.input_layer: minibatchIms , yoloNet.gt_conf : gt_conf, \
+	yoloNet.gt_classes : gt_classes, yoloNet.ind_obj_i: ind_obj_i, \
+	yoloNet.dropout_prob: TRAIN_DROP_PROB, yoloNet.gt_boxes_j0 : gt_boxes_j0 }
+
 	trainLossVal, _ = sess.run( [yoloNet.loss, yoloNet.train_op],feed_dict=feed )
 	print 'Training loss at step %d: %f' % (step,trainLossVal)
-
 
 def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_val_mAP ):
 	"""
@@ -75,17 +84,28 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 	OUTPUTS:
 	-	N/A
 	"""
+	detections = []
 	print '====> Evaluating: %s at epoch %d =====>' % (splitType, epoch)
-	for i in range( SIZE_OF_DATA_SPLIT ):
+	for i in range( data_set_size ):
 		minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
 		minibatchIms = np.expand_dims( minibatchIms, 0)
-		minibatchGTs = minibatchGTs.astype(np.float32)
-		minibatchGTs = minibatchGTs.astype(np.float32) # (NUM_GT_BOXES_IN_1_IMAGE, 73)
-		feed = { yoloNet.input_layer: minibatchIms , yoloNet.gts : minibatchGTs, yoloNet.dropout_prob: TEST_DROP_PROB }
+
+		gt_conf,gt_classes,ind_obj_i,gt_boxes_j0 = minibatchGT
+		gt_conf = gt_conf.astype(np.float32)
+		gt_classes = gt_classes.astype(np.float32)
+		ind_obj_i = ind_obj_i.astype(np.float32)
+		gt_boxes_j0 = gt_boxes_j0.astype(np.float32)
+
+		## FEED DROPOUT 0.5 AT TRAIN TIME, 1.0 AT TEST TIME #######
+		feed = { yoloNet.input_layer: minibatchIms , yoloNet.gt_conf : gt_conf, \
+		yoloNet.gt_classes : gt_classes, yoloNet.ind_obj_i: ind_obj_i, \
+		yoloNet.dropout_prob: TEST_DROP_PROB, yoloNet.gt_boxes_j0 : gt_boxes_j0 }
+
 		class_probs,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
+		detections.append( { class_given_obj:class_probs, confidences:confidences,bboxes:bboxes   })
 		# NOW PROCESS THE PREDICTIONS HERE
-	BB, BBGT = convertPredsAndGTs(bboxes, class_probs, confidences )
-	mAP = computeMeanAveragePrecision(BB,BBGT)
+	# BB, BBGT = convertPredsAndGTs(bboxes, class_probs, confidences )
+	mAP = computeMeanAveragePrecision(detections, splitType)
 	# save some of the plots just as a sanity check along the way
 
 	if (splitType == 'val') and (mAP > best_val_mAP):
@@ -94,11 +114,9 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 		best_val_mAP = mAP
 	# plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
 
-def convertPredsAndGTs(bboxes, class_probs, confidences ):
-
-	BB = 
-	return BB, BBGT
-
+	# Each grid cells also predicts conditional class probabilities, Pr(Classi |Object). 
+	# These probabilities are conditioned on the grid cell containing an object.
+	# Why not just at test time do cross product?
 
 
 if __name__ == '__main__':
