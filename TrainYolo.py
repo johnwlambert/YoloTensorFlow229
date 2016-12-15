@@ -39,11 +39,15 @@ plot_im_bboxes = False # True
 getPickledData = True
 vocImagesPklFilename = 'VOC_AnnotatedImages.pkl'
 CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+NUM_CLASSES = len(CLASSES)
+NUM_GRID = 7
+NUM_BOX = 2
 voc_data_path = '/Users/johnlambert/Documents/Stanford_2016-2017/CS_229/229CourseProject/YoloTensorFlow229/VOCdevkit_2012/'
 numVar = 5
 
 VAL_SET_SIZE = 501
 TEST_SET_SIZE = 502
+THRESH = 0.2
 #######################################################################
 
 
@@ -101,16 +105,34 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 		yoloNet.gt_classes : gt_classes, yoloNet.ind_obj_i: ind_obj_i, \
 		yoloNet.dropout_prob: TEST_DROP_PROB, yoloNet.gt_boxes_j0 : gt_boxes_j0 }
 
-		class_probs,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
-		detections.append( { class_given_obj:class_probs, confidences:confidences,\
-			bboxes:bboxes, gt_boxes_j0:gt_boxes_j0, gt_classes: gt_classes   })
+		class_probs_giv_obj,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
+
 		# NOW PROCESS THE PREDICTIONS HERE
+		boxes = np.reshape(boxes, [NUM_GRID*NUM_GRID,NUM_BOX,4] )
+		boxes = convertWH_to_xMax_yMax( boxes )
+		class_probs = np.zeros((NUM_GRID*NUM_GRID,NUM_BOX,NUM_CLASSES))
+		# We use a law of probability: prob(class) = prob(class|object) * prob(object)
+														# 49 x 20 			49 x 2
+		for i in range(NUM_BOX):
+			for j in range(NUM_CLASSES):
+				class_probs[:,i,j] = np.multiply(class_probs_giv_obj[:,:,j],confidences[:,:,i])
+
+		class_indices = np.argmax( class_probs, axis = 2)
+		valid_detection_indices = np.where( confidences > 0.2 )[0]
+
+		class_indices = class_indices[valid_detection_indices]
+		confidences = confidences[valid_detection_indices]
+		boxes = boxes[valid_detection_indices,:]
+		print 'Class Indices have shape: ', class_indices.shape
+		
+		detections.append( { 'pred_classes':class_indices, 'confidences':confidences,\
+			'bboxes':boxes, 'gt_boxes_j0':gt_boxes_j0, 'gt_classes': gt_classes   })
+
 	# BB, BBGT = convertPredsAndGTs(bboxes, class_probs, confidences )
 	mAP = computeMeanAveragePrecision(detections, splitType)
 	# save some of the plots just as a sanity check along the way
 
 	if (splitType == 'val') and (mAP > best_val_mAP):
-
 		saver.save(session, './%s/YOLO_Trained.weights' % (new_dir_path ) )
 		best_val_mAP = mAP
 	# plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
@@ -120,9 +142,21 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 	# Why not just at test time do cross product?
 
 
+def convertWH_to_xMax_yMax( boxes ):
+	"""
+	INPUTS:
+	-	boxes: n-d array contains [xmin,ymin,w,h] columns
+	OUTPUTS:
+	-	boxes: n-d array contains [xmin,ymin,xmax,ymax] columns
+	"""
+	xmin = boxes[:,:,0]
+	ymin = boxes[:,:,1]
+	boxes[:,:,2] += xmin # xmin + w = xmax
+	boxes[:,:,3] += ymin # ymin + h = ymax
+	return boxes
+
+
 if __name__ == '__main__':
-	"""
-	"""
 	best_val_mAP = -1 * float('inf')
 	annotatedImages = getData(getPickledData,vocImagesPklFilename)
 	trainData, valData, testData = separateDataSets(annotatedImages)

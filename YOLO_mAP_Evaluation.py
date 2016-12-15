@@ -18,13 +18,9 @@ def computeMeanAveragePrecision(detections, splitType):
 	This score corresponds to the area under the precision-recall curve.
 	The mean of these numbers is the mAP.
 	"""
-	# SORT THEM FIRST
-	BB = [BLAH BLAH for BLAH BLAH in BLAH BLAH]# for our favorite volleyball o
-	BBGT [BLAH BLAH for BLAH BLAH in BLAH BLAH]
-
 	aps = []
 	for i, cls in enumerate(CLASSES):
-	    rec, prec, ap = matchGTsAndComputePrecRecallAP(cls,BB,BBGT,ovthresh=0.5)
+	    rec, prec, ap = matchGTsAndComputePrecRecallAP(cls,detections,ovthresh=0.5)
 	    aps += [ap]
 	    print('AP for {} = {:.4f}'.format(cls, ap))
 	print('Mean AP = {:.4f}'.format(np.mean(aps)))
@@ -35,14 +31,6 @@ def computeMeanAveragePrecision(detections, splitType):
 	print('{:.3f}'.format(np.mean(aps)))
 	mAP = np.mean(aps)
 	return mAP
-
-
-	if splitType == 'val':
-		data_set_size = VAL_SET_SIZE
-	elif splitType == 'test':
-		data_set_size = TEST_SET_SIZE
-	BB = np.zeros((TEST_SET_SIZE,4))
-	BBGT = []
 
 def naiveAPCalculation(rec,prec):
 	"""
@@ -87,10 +75,11 @@ def intersection(BBGT,bb):
 	Why do they inflate numbers by adding +1.? I don't
 	https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/datasets/voc_eval.py#L168
 	"""
-	ixmin = np.maximum(BBGT[:, 0], bb[0])
-	iymin = np.maximum(BBGT[:, 1], bb[1])
-	ixmax = np.minimum(BBGT[:, 2], bb[2])
-	iymax = np.minimum(BBGT[:, 3], bb[3])
+	print BBGT[ 0], bb[0]
+	ixmin = np.maximum(BBGT[ 0], bb[0])
+	iymin = np.maximum(BBGT[ 1], bb[1])
+	ixmax = np.minimum(BBGT[ 2], bb[2])
+	iymax = np.minimum(BBGT[ 3], bb[3])
 	iw = np.maximum(ixmax - ixmin , 0.)
 	ih = np.maximum(iymax - iymin , 0.)
 	inters = iw * ih
@@ -100,19 +89,28 @@ def union(BBGT,bb,inters):
 	"""
 	Why do they inflate numbers by adding +1.? I don't
 	https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/datasets/voc_eval.py#L173
+	INPUTS:
+	-	
+	OUTPUTS:
+	-	
 	"""
 	union = ((bb[2] - bb[0] ) * (bb[3] - bb[1] ) + \
-		(BBGT[:, 2] - BBGT[:, 0] ) * \
-		(BBGT[:, 3] - BBGT[:, 1] ) - inters)
+		(BBGT[ 2] - BBGT[ 0] ) * \
+		(BBGT[ 3] - BBGT[ 1] ) - inters)
 	return union
 
-
-def computeIOU(BBGT,bb):
-	inters = intersection(BBGT,bb)
-	# union
-	uni = union(BBGT,bb,inters)
-	overlaps = inters / uni
-	return overlaps
+#Returns the intersection over union of two rectangles, a and b, where each is an array [x,y,w,h]
+def computeIOU(BBGT,bb): 
+	maxIOU = 0
+	for i,gtBbox in enumerate(BBGT):
+		print gtBbox
+		inters = intersection(gtBbox,bb) * 1.0
+		print 'Intersection: ', inters
+		uni = union(gtBbox,bb,inters)
+		print 'Union: ', uni
+		iou =   inters/uni
+		maxIOU = max(iou,maxIOU)
+	return maxIOU
 
 
 def unitTestAP():
@@ -121,7 +119,7 @@ def unitTestAP():
 	assert (voc_ap(rec, prec) - naiveAPCalculation(rec,prec)) < EPSILON
 
 
-def matchGTsAndComputePrecRecallAP(cls,BB,BBGT,ovthresh=0.5):
+def matchGTsAndComputePrecRecallAP(cls,detections,iouthresh=0.5):
 	"""
 	INPUTS:
 	-	BB: predicted bounding boxes
@@ -136,101 +134,69 @@ def matchGTsAndComputePrecRecallAP(cls,BB,BBGT,ovthresh=0.5):
 	bounding boxes hitting on a same ground truth, only one of
 	them is counted as correct, and all the others are treated as false alarms
 	"""
+	BBGT = []
+	confidence = []
+	predBB = []
+	BB_im_ids = []
 
-    BBGT = []
-    BBGT_classes = []
-    confidence = []
-    BB = []
-    BB_classes = []
-    im_ids = []
-    num_gt_per_image = []
+	imIdToNumGtInsideImDict = {}
 
-    # FIND THE PREDICTIONS FOR JUST ONE CLASS, E.G. AIRPLANE
-    for i,im in enumerate(detections):
-    	for j in len(im['bboxes']):
-    		if im['class_given_obj'][j] == cls:
-    			
-
-
-
-    	for pred in im['bboxes']:
-    		BB.append( pred )
-    		im_ids.append( i )
-    		num_gt_per_image.append( len(im['gt_boxes_j0']) )
-    	for predclass in im['class_given_obj']: # will just be p(class) actually
-    		BB_classes.append( predclass )
-    	for conf in im['confidences']:
-    		confidence.append( conf)
-    	for gtbb in im['gt_boxes_j0']:
-    		BBGT.append(gtbb)
-    	for gtclass in im['gt_classes']:
-    		BBGT_classes.append(gtclass)
+	# FIND THE PREDICTIONS FOR JUST --ONE CLASS--, E.G. AIRPLANE
+	for imIdx,im in enumerate(detections):
+		# look at each of the predictions
+		for j in range( len(im['bboxes'])):
+			if im['pred_classes'][j] == cls:
+				BB.append( im['bboxes'][j] )
+				confidence.append( im['confidences'][j] )
+				im_ids.append( imIdx )
+		for j in range( len(im['gt_boxes_j0'])):
+			num_of_this_class_in_this_im = 0
+    		if im['gt_classes'][j] == cls:
+    			BBGT.append( im['gt_boxes_j0'][j] )
+    			num_of_this_class_in_this_im += 1
+    		imIdToNumGtInsideImDict[imIdx] = num_of_this_class_in_this_im
 
 	BBGT = np.asarray(BBGT)
-	BBGT_classes = np.asarray(BBGT_classes)
 	confidence = np.asarray(confidence)
-    BB = np.asarray(BB)
-    BB_classes = np.asarray(BB_classes)
+	BB = np.asarray(BB)
 
-    # sort by confidence
-    sorted_ind = np.argsort(-confidence)
-    sorted_scores = np.sort(-confidence)
-    BB = BB[sorted_ind, :]
+	# sort by confidence
+	sorted_ind = np.argsort(confidence) # sort according to highest confidence
+	sorted_scores = np.sort(confidence) # sort according to highest confidence
+	BB = BB[sorted_ind, :]
+	BB_im_ids = BB_im_ids[sorted_ind,:]
 
-	total_cls_groundtruth = 0
-
-	get k highest rank things
-	check to see what their ground truth is by looking at saved image id?
-
-
-
-
-
-	# first just choose most confident thing
-	for k in range( BB.shape[0] )
-
-		rankK = 
+	#get k highest rank (confidence score) things
+	for k in range( BB.shape[0] ):
+		# then choose next most confident thing
+		#get unique imIds inside current rank list
+		total_cls_reports = k
+		uniqueImIds = np.unique( BB_im_ids[:k])
+		for uniqueImId in uniqueImIds:
+			total_cls_groundtruth += imIdToNumGtInsideImDict[uniqueImId]
 
 		# go down detections and mark TPs and FPs
-		total_cls_reports = 0
-		total_cls_groundtruth = 
-		
 		fp = 0
 		tp = 0
-
-		# then choose next most confident thing
-
-		if BBGT_classes[d] == cls:
-			total_cls_groundtruth += 1
-		if BB_classes[d] == cls:
-			total_cls_reports += 1
 		if BBGT_classes == BB_classes:
 			bb = BB[d, :].astype(float)
 			ovmax = -np.inf
 			if BBGT.size > 0:
-				overlaps = computeIOU(BBGT,bb)
-				ovmax = np.max(overlaps)
-				jmax = np.argmax(overlaps)
-
-	        if ovmax > ovthresh:
-	            if BBGT_classes[d] == BB_classes[d]:
-	                tp[d] = 1.
-	            else:
-	                fp[d] = 1.
-	        else:
-	            fp[d] = 1.
+				iou = computeIOU(BBGT,bb)
+		        if iou > iouthresh:
+		            if BBGT_classes[d] == BB_classes[d]:
+		                tp += 1.
+		            else:
+		                fp += 1.
+		        else:
+		            fp += 1.
 
 	# compute precision recall
-	fp = np.cumsum(fp)
-	tp = np.cumsum(tp)
+	precision = tp / maximum(tp + fp, np.finfo(np.float64).eps) # how accurate are reports
+	recall = tp / maximum(tp + fn, np.finfo(np.float64).eps) # how many ground truth can be found by the algorithm
 
-	recall = tp
-
-	rec = tp / float(npos)
-	# avoid divide by zero in case the first detection matches a difficult
-	# ground truth
-	prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
-	ap = voc_ap(rec, prec, use_07_metric)
-	# My implementation vs. Ross Girshick's implementation.
+	# avoid divide by zero
+	ap = voc_ap(rec, prec )
+	# My implementation vs. Ross Girshick's implementation -- should be same area under curve
 	assert (voc_ap(rec, prec) - naiveAPCalculation(rec,prec)) < EPSILON
 	return rec, prec, ap
