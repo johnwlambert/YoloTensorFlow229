@@ -49,8 +49,6 @@ def preprocess_data(voc_data_path):
     return annotated_images
 
 if __name__ == '__main__':
-    # test1.py executed as script
-    # do something
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--data_path', help='path to VOC data')
     args = parser.parse_args()

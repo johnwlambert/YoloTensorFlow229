@@ -1,22 +1,22 @@
 import argparse
 import os
 import csv
-#import cv2
+import cv2
 import numpy as np
 import tensorflow as tf
-from scipy.misc import imread, imresize
 
 from plot_utils import *
 
 class YOLO:
-    def __init__(self, weight_path, checkpoint_path, image_path):
+    def __init__(self, weight_path, checkpoint_path):
+        self.debug = False
         self.weight_path = weight_path
         self.checkpoint_path = checkpoint_path
-        self.image_path = image_path
         self.num_classes = 20
         self.S = 7
         self.B = 2
-        self.use_open_cv = False
+
+        self.create_network()
 
     def create_network(self):
         # network structure is based on darknet yolo-small.cfg
@@ -61,6 +61,14 @@ class YOLO:
         connected_layer31 = self.create_connected_layer(dropout_layer30, 1470, False, 31)
         self.output_layer = connected_layer31
 
+        self.session = tf.Session()
+        self.session.run(tf.initialize_all_variables())
+        # save checkpoint file if it doesn't exist
+        if not os.path.exists(self.checkpoint_path):
+            tf.train.Saver().save(self.session, self.checkpoint_path)
+        else:
+            tf.train.Saver().restore(self.session, self.checkpoint_path)
+
     def create_conv_layer(self, input_layer, d0, d1, filters, stride, weight_index):
         channels = int(input_layer.get_shape()[3])
         weight_shape = [d0, d1, channels, filters]
@@ -68,7 +76,7 @@ class YOLO:
 
         weight = tf.random_normal(weight_shape, stddev = 0.35, dtype = tf.float32)
         bias = tf.random_normal(bias_shape, stddev = 0.35, dtype = tf.float32)
-        if self.pretrained_weights:
+        if self.weight_path:
             weight = np.empty(weight_shape, dtype = np.float32)
             weight_trained_path = os.path.join(self.weight_path, 'conv_weight_layer' + str(weight_index + 1) + '.csv')
             print 'Loading weights from file: ' + weight_trained_path
@@ -88,7 +96,8 @@ class YOLO:
 
         weight = tf.Variable(weight)
         bias = tf.Variable(bias)
-        input_layer = tf.Print(input_layer, [input_layer, weight, bias], "convolution")
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer, weight, bias], "convolution")
 
         # mimic explicit padding used by darknet...a bit tricky
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/parser.c#L145
@@ -107,7 +116,7 @@ class YOLO:
 
         weight = tf.random_normal(weight_shape, stddev = 0.35, dtype = tf.float32)
         bias = tf.random_normal(bias_shape, stddev = 0.35, dtype = tf.float32)
-        if self.pretrained_weights:
+        if self.weight_path:
             weight = np.empty(weight_shape, dtype = np.float32)
             weight_trained_path = os.path.join(self.weight_path, 'connect_weight_layer' + str(weight_index + 1) + '.csv')
             print 'Loading weights from file: ' + weight_trained_path
@@ -125,16 +134,19 @@ class YOLO:
 
         weight = tf.Variable(weight)
         bias = tf.Variable(bias)
-        input_layer = tf.Print(input_layer, [input_layer, weight, bias], 'connected')
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer, weight, bias], 'connected')
 
         return self.activation(tf.add(tf.matmul(input_layer, weight), bias), leaky)
 
     def create_maxpool_layer(self, input_layer, d0, d1, stride):
-        input_layer = tf.Print(input_layer, [input_layer], 'pool')
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer], 'pool')
         return tf.nn.max_pool(input_layer, ksize = [1, d0, d1, 1], strides = [1, stride, stride, 1], padding = 'SAME')
 
     def create_dropout_layer(self, input_layer, prob):
-        input_layer = tf.Print(input_layer, [input_layer], 'dropout')
+        if self.debug:
+            input_layer = tf.Print(input_layer, [input_layer], 'dropout')
         return tf.nn.dropout(input_layer, prob)
 
     def activation(self, input_layer, leaky = True):
@@ -145,51 +157,19 @@ class YOLO:
         else:
             return input_layer
 
-    def run_inference(self):
-        self.pretrained_weights = False
-        self.create_network()
-
-        session = tf.Session()
-        writer = tf.train.SummaryWriter( './data' , session.graph )
-        session.run(tf.initialize_all_variables())
-        tf.train.Saver().restore(session, self.checkpoint_path)
-
-        img = self.process_image(self.image_path)
-        # add batch dimension
-        input = np.expand_dims(img, axis=0)
-        prediction = session.run(self.output_layer, feed_dict = {self.input_layer: input, self.dropout_prob: 1})
-        self.process_prediction(prediction)
-
-    def save_checkpoint(self):
-        self.pretrained_weights = True
-        self.create_network()
-        session = tf.Session()
-        session.run(tf.initialize_all_variables())
-        tf.train.Saver().save(session, self.checkpoint_path)
-
-    def process_image(self, image_path):
-
-        if self.use_open_cv:
-            img = cv2.imread(image_path)
-            img = cv2.resize(img, (448, 448))
-            # for some reason darknet switches red and blue channels...
-            # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        else:
-            # Use SciPy
-            img = imread(image_path)
-            img = imresize(img, (448, 448))
-            img = img[...,::-1]
+    def process_image(self, img):
+        img_resize = cv2.resize(img, (448, 448))
+        # for some reason darknet switches red and blue channels...
+        # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L391
+        img_resize = cv2.cvtColor(img_resize, cv2.COLOR_BGR2RGB)
         # darknet scales color values from 0 to 1
         # https://github.com/pjreddie/darknet/blob/c6afc7ff1499fbbe64069e1843d7929bd7ae2eaa/src/image.c#L469
-        img = (img / 255.0)
-        return img
+        img_resize = (img_resize / 255.0) * 2.0 - 1.0
 
-    def process_prediction(self, predictions):
-        """
-        """
-        predictions = np.squeeze( predictions ) # remove 1 from first dim, so not (1,1470)
-        print predictions.shape
+        input = np.expand_dims(img_resize, axis=0)
+        predictions = self.session.run(self.output_layer, feed_dict = {self.input_layer: input, self.dropout_prob: 1})
+
+        predictions = np.squeeze(predictions) # remove 1 from first dim, so not (1,1470)
         classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
         # A bit unclear what the 'l.n' is that they use here
         # https://github.com/pjreddie/darknet/blob/master/src/detection_layer.c#L236
@@ -198,26 +178,49 @@ class YOLO:
         probs = np.reshape( predictions[0:end_probs], [self.S,self.S,self.num_classes] )
         confidences = np.reshape( predictions[end_probs:end_confidences], [self.S,self.S,self.B])
         bboxes = np.reshape( predictions[end_confidences:], [self.S, self.S, self.B, 4] )
-        plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
 
+        img_out = img.copy()
+        return plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
+
+    def process_video(self, video_path):
+        frame_detections = []
+        cap = cv2.VideoCapture(video_path)
+        w = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT))
+        out = cv2.VideoWriter('data/output.avi', cv2.cv.CV_FOURCC(*'XVID'), 20.0, (w, h))
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+
+            frame_out, bounding_boxes = self.process_image(frame)
+            frame_detections.append(bounding_boxes)
+            for box in bounding_boxes:
+                print box.category
+            #cv2.imwrite('data/' + str(i) + '.png', frame_out)
+            out.write(frame_out)
+        cap.release()
+        out.release()
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-w', '--weight_path', help='path to weights/biases for each layer')
-    parser.add_argument('-t', '--image_path', help='path to test image', required=True)
+    parser.add_argument('-t', '--image_path', help='path to test image')
+    parser.add_argument('-v', '--video_path', help='path to test video')
     parser.add_argument('-c', '--checkpoint_path', help='path to create checkpoint', required=True)
     args = parser.parse_args()
+
+    checkpoint_path = os.path.abspath(os.path.expanduser(args.checkpoint_path))
     weight_path = None
     if args.weight_path:
         weight_path = os.path.abspath(os.path.expanduser(args.weight_path))
-    checkpoint_path = os.path.abspath(os.path.expanduser(args.checkpoint_path))
-    image_path = os.path.abspath(os.path.expanduser(args.image_path))
-
-    yolo = YOLO(weight_path, checkpoint_path, image_path)
-    if weight_path:
-        yolo.save_checkpoint()
-    else:
-        yolo.run_inference()
+    yolo = YOLO(weight_path, checkpoint_path)
+    if args.image_path:
+        image_path = os.path.abspath(os.path.expanduser(args.image_path))
+        img, bounding_boxes = yolo.process_image(cv2.imread(image_path))
+        cv2.imwrite('data/out.png', img)
+    if args.video_path:
+        video_path = os.path.abspath(os.path.expanduser(args.video_path))
+        yolo.process_video(video_path)
 
 if __name__ == "__main__":
     main()
