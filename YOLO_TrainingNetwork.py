@@ -32,9 +32,15 @@ class YOLO_TrainingNetwork:
         self.create_network()
 
     def add_placeholders(self):
+        """
+        There are 3 input nodes to the computational graph: 
+            images, ground truth, and dropout prob
+        """
         self.input_layer = tf.placeholder(tf.float32, shape = [None, 448, 448, 3], name='Inputs')
         # GTs have shape 73=NUM_CLASSES+4+49
         self.gts = tf.placeholder(tf.float32, shape = [None, NUM_CLASSES + 4 + (7*7) ], name='GTs')
+        # dropout prob is only set <1 during training
+        self.dropout_prob = tf.placeholder(tf.float32)
 
     def create_network(self):
         # network structure is based on darknet yolo-small.cfg
@@ -72,8 +78,7 @@ class YOLO_TrainingNetwork:
         conv_layer27_flatten = tf.reshape(tf.transpose(conv_layer27, (0, 3, 1, 2)), [-1, conv_layer27_flatten_dim])
         connected_layer28 = self.create_connected_layer(conv_layer27_flatten, 512, True, 28, 'ConnectedLayer28')
         connected_layer29 = self.create_connected_layer(connected_layer28, 4096, True, 29, 'ConnectedLayer29')
-        # dropout layer is only used during training
-        self.dropout_prob = tf.placeholder(tf.float32)
+
         dropout_layer30 = self.create_dropout_layer(connected_layer29, self.dropout_prob)
         connected_layer31 = self.create_connected_layer(dropout_layer30, 1470, False, 31, 'ConnectedLayer31')
         self.output_layer = connected_layer31

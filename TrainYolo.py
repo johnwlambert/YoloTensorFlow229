@@ -65,7 +65,7 @@ def runTrainStep(yoloNet, annotatedImages,sess, step):
 	print 'Training loss at step %d: %f' % (step,trainLossVal)
 
 
-def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch ):
+def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_val_mAP ):
 	"""
 	INPUTS:
 	-	yoloNet: Instance of YOLO_TrainingNetwork class (this is a CNN)
@@ -76,34 +76,51 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch ):
 	-	N/A
 	"""
 	print '====> Evaluating: %s at epoch %d =====>' % (splitType, epoch)
-	minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
-	minibatchIms = np.expand_dims( minibatchIms, 0)
-	minibatchGTs = minibatchGTs.astype(np.float32)
-	minibatchGTs = minibatchGTs.astype(np.float32) # (NUM_GT_BOXES_IN_1_IMAGE, 73)
-	feed = { yoloNet.input_layer: minibatchIms , yoloNet.gts : minibatchGTs, yoloNet.dropout_prob: TEST_DROP_PROB }
-	class_probs,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
-	# NOW PROCESS THE PREDICTIONS HERE
-	# computeMeanAveragePrecision(BB,BBGT)
+	for i in range( SIZE_OF_DATA_SPLIT ):
+		minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
+		minibatchIms = np.expand_dims( minibatchIms, 0)
+		minibatchGTs = minibatchGTs.astype(np.float32)
+		minibatchGTs = minibatchGTs.astype(np.float32) # (NUM_GT_BOXES_IN_1_IMAGE, 73)
+		feed = { yoloNet.input_layer: minibatchIms , yoloNet.gts : minibatchGTs, yoloNet.dropout_prob: TEST_DROP_PROB }
+		class_probs,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
+		# NOW PROCESS THE PREDICTIONS HERE
+	BB, BBGT = convertPredsAndGTs(bboxes, class_probs, confidences )
+	mAP = computeMeanAveragePrecision(BB,BBGT)
 	# save some of the plots just as a sanity check along the way
+
+	if (splitType == 'val') and (mAP > best_val_mAP):
+
+		saver.save(session, './%s/YOLO_Trained.weights' % (new_dir_path ) )
+		best_val_mAP = mAP
 	# plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
+
+def convertPredsAndGTs(bboxes, class_probs, confidences ):
+
+	BB = 
+	return BB, BBGT
+
 
 
 if __name__ == '__main__':
 	"""
 	"""
+	best_val_mAP = -1 * float('inf')
 	annotatedImages = getData(getPickledData,vocImagesPklFilename)
 	trainData, valData, testData = separateDataSets(annotatedImages)
 	if plot_im_bboxes == True:
 		plotGroundTruth(annotatedImages)
 	yoloNet = YOLO_TrainingNetwork( use_pretrained_weights = False)
 	numItersPerEpoch = TRAIN_SET_SIZE / BATCH_SIZE
+	saver = tf.train.Saver()
 	with tf.Session() as sess:
 		sess.run(tf.initialize_all_variables())
 		for epoch in range(NUM_EPOCHS):
 			print '====> Starting Epoch %d =====>' % (epoch)
 			for step in range(numItersPerEpoch):
 				runTrainStep(yoloNet, annotatedImages ,sess, step)
-			runEvalStep( 'val', yoloNet, annotatedImages ,sess, epoch)
-			runEvalStep( 'test', yoloNet, annotatedImages ,sess, epoch)
+			runEvalStep( 'val', yoloNet, annotatedImages ,sess, epoch, saver, best_val_mAP)
+		# After all training complete
+		saver.restore
+		runEvalStep( 'test', yoloNet, annotatedImages ,sess, epoch, None, None)
 
 
