@@ -1,235 +1,109 @@
 # John Lambert, Matt Vilim, Konstantine Buhler
 # CS 229, Stanford University
-# December 2016
+# December 14, 2016
 
 
-# TO-DOs
-# HOW TO CALCULATE GT CONFIDENCES? What is GT_{PRED}^{IOU} ?
+# TO-DO:
+# Verify Indicator Probabilities
+# Compute p(c) = p(c | obj) * p(obj) before loss calc
+# Compute mean image, subtract by it, Divide by standard deviation.
 
+from PIL import Image
 import tensorflow as tf
 import math
 import numpy as np
-from preprocess_data import *
-from scipy.misc import imread
+
 import matplotlib.pyplot as plt
-import cPickle as pickle
 
 import matplotlib
 from matplotlib.legend_handler import HandlerLine2D
 import matplotlib.patches as patches
 
+from preprocess_data import *
 from YOLO_TrainingNetwork import YOLO_TrainingNetwork
+from YOLO_PlottingUtils import *
+from YOLO_DataUtils import *
+from YOLO_mAP_Evaluation import * # mean average precision utils
 
-### FOR DECIDING WHICH BBOXES CORRESPOND TO WHICH GRID CELLS ##########
-NO_IMAGE_FLAG = 0 # COULD MAKE THIS -9999, ETC.
-CONTAINS_IMAGE_FLAG = 1
-#######################################################################
-num_iters = 10e6
+####### HYPERPARAMETERS ###########################################
+TRAIN_DROP_PROB = 0.8
+TEST_DROP_PROB = 1.0
+#ARBITRARY_STOP_LOADING_IMS_NUMBER_FOR_DEBUGGING = 5011
+NUM_VOC_IMAGES = 5011
+TRAIN_SET_SIZE = int( math.floor( NUM_VOC_IMAGES * 0.8 )) 
+BATCH_SIZE = 1
+NUM_EPOCHS = 100
 plot_yolo_grid_cells = False
 plot_bbox_centerpoints = False
 plot_im_bboxes = False # True
 getPickledData = True
 vocImagesPklFilename = 'VOC_AnnotatedImages.pkl'
-classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 voc_data_path = '/Users/johnlambert/Documents/Stanford_2016-2017/CS_229/229CourseProject/YoloTensorFlow229/VOCdevkit/'
-S = 7
-numClasses = len(classes) # 20 for VOC, later will change for MSCOCO, ImageNet, etc.
-B = 2.
 numVar = 5
 #######################################################################
-classnameToIdxDict = {}
-for i,classname in enumerate(classes):
-	classnameToIdxDict[classname] = i
 
 
 
-def getData():
-	"""
-	We retrieve data of the following format:
-	class annotated_image:
-	    def __init__(self, image_path):
-	        self.image_path = image_path
-	        # list of class bounding boxes
-	        self.bounding_boxes = []
-	class bounding_box:
-	    def __init__(self, x_min, y_min, w, h, category):
-	        self.x_min = x_min
-	        self.y_min = y_min
-	        self.w = w
-	        self.h = h
-	        self.category = category
-	"""
-	if getPickledData:
-		with open( vocImagesPklFilename, 'rb') as f:
-			annotatedImages = pickle.load(f)
-	else:
-		annotatedImages = preprocess_data(voc_data_path)
-		with open( vocImagesPklFilename, 'wb') as f:
-			pickle.dump(annotatedImages,f)
-	return annotatedImages
-
-
-
-
-def plotGroundTruth(annotatedImages):
-	for imIdx, annotatedImage in enumerate(annotatedImages):
-		bboxes = annotatedImage.bounding_boxes
-		im = imread( annotatedImage.image_path )
-		plotBBoxes(bboxes,im, imIdx)
-		if imIdx > 100:
-			quit()
-
-def plotBBoxes(bboxes, im, imIdx):
-	imWidth = im.shape[1]
-	imHeight = im.shape[0]
-	fig, ax = plt.subplots(figsize=(8, 8))
-	ax.imshow(im, aspect='equal')
-	for bbox in bboxes:
-		x = bbox.x_min
-		y = bbox.y_min
-		w = bbox.w
-		h = bbox.h
-		class_name = bbox.category
-		x_cent = x + w/2.
-		y_cent = y + h/2.
-		x = x_cent
-		y = y_cent
-		left = max(0, x - w/2. )
-		right = min( x + w/2., imWidth-1 )
-		top = max(0, y - h/2. )
-		bot = min( y + h/2., imHeight-1 )
-		ax.add_patch(
-	        plt.Rectangle((left, top),
-	                      right-left,
-	                      bot-top, fill=False,
-	                      edgecolor='red', linewidth=3.5)
-	        )
-		ax.text(left, top-2,
-	            '{:s}'.format(class_name ),
-	            bbox=dict(facecolor='blue', alpha=0.5),
-	            fontsize=14, color='white')
-	plt.draw()
-	plt.tight_layout()
-	plt.savefig( 'Image_%d.png' % imIdx)
-	plt.gcf().set_size_inches(15, 12)
-
-
-def plotGridCellsOnIm(im,ax):
-	"""
-	Show 7x7 YOLO detection grid on image.
-	"""
-	for row in range(S):
-		for col in range(S):
-			imHeight = im.shape[0]
-			imWidth = im.shape[1]
-			left = row * (1. * imWidth /S )
-			right = (row+1) * (1. * imWidth /S)
-			top = col * (1. * imHeight/S)
-			bot = (col + 1) * (1. * imHeight/S)
-			ax.add_patch(
-		        plt.Rectangle((left, top),
-		                      right-left,
-		                      bot-top, fill=False,
-		                      edgecolor='red', linewidth=3.5)
-		        )
-		plt.draw()
-
-
-def makeGroundTruthTensors(annotatedImages):
-	"""
-	If center of a bounding box falls into a grid cell, that grid cell is 
-	responsible for detecting that bounding box. So I store that bbox info
-	for that particular grid cell.
-	20 CLASS PROBS , X Y W H C1 , X Y W H C2
-	"""
-	print '=====> Constructing Ground Truth tensors for %d images ====>', len(annotatedImages)
-	listOfImPaths = []
-	listOfGTs = []
-	for imNum, annotatedImage in enumerate(annotatedImages):
-		#print 'Image: ', imNum
-		image_path = annotatedImage.image_path
-		im = imread(image_path)
-		### PLOTTING ########
-		if plot_yolo_grid_cells or plot_bbox_centerpoints:
-			fig, ax = plt.subplots(figsize=(8, 8))
-			ax.imshow(im, aspect='equal')
-			plotGridCellsOnIm(im,ax)
-		gt = np.ones( (S,S,numClasses+(B*numVar) )) * NO_IMAGE_FLAG
-		occupiedSlot = np.zeros((S,S,B))
-		# We limit to two bounding boxes per grid cell. 
-		# For each image, tell which grid cells are responsible for which bboxes
-		for i, bbox in enumerate(annotatedImage.bounding_boxes):
-			x_cent = bbox.x_min + bbox.w / 2.
-			y_cent = bbox.y_min + bbox.h / 2.
-			gridCellWidth = im.shape[1] / 7.
-			gridCellHeight = im.shape[0] / 7.
-			gridCellRow = math.floor( y_cent / gridCellHeight )
-			gridCellCol = math.floor( x_cent / gridCellWidth )
-			normalizedXCent=(x_cent-(gridCellCol * gridCellWidth))/gridCellWidth
-			normalizedYCent=(y_cent-(gridCellRow * gridCellHeight))/gridCellHeight
-			normalizedW = bbox.w * 1.0 / im.shape[1] # dividing by im width
-			normalizedH = bbox.h * 1.0 / im.shape[0] # dividing by im height
-			gridCellRow = int(gridCellRow)
-			gridCellCol = int(gridCellCol)
-			CONF = 99999 ## UNKNOWN HOW TO DO THIS PART
-			classIdx = classnameToIdxDict[ bbox.category ] # convert string to int
-			if occupiedSlot[gridCellRow,gridCellCol,0] == NO_IMAGE_FLAG:
-				j = 0 # 2nd box slot for this grid cell
-				gt[gridCellRow,gridCellCol,classIdx] = 1
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+0 ] = normalizedXCent
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+1 ] = normalizedYCent
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+2 ] = normalizedW
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+3 ] = normalizedH
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+4 ] = CONF
-				occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
-			elif occupiedSlot[gridCellRow,gridCellCol,1] == NO_IMAGE_FLAG:
-				j = 1 # 2nd box slot for this grid cell
-				gt[gridCellRow,gridCellCol,classIdx] = 1
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+0 ] = normalizedXCent
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+1 ] = normalizedYCent
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+2 ] = normalizedW
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+3 ] = normalizedH
-				gt[gridCellRow,gridCellCol,numClasses+(j*numVar)+4 ] = CONF
-				occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
-			else:
-				print 'In Image %d, no more room in grid cell for this bbox.' % (imNum)
-
-		if plot_bbox_centerpoints == True:
-			plt.scatter(x_cent,y_cent)
-		if plot_bbox_centerpoints or plot_yolo_grid_cells:
-			plt.tight_layout()
-			plt.show()
-			plt.gcf().set_size_inches(15, 12)
-
-		listOfImPaths.append( image_path )
-		listOfGTs.append( gt )
-	return listOfImPaths, listOfGTs
-
-def runTrainStep(yoloNet, listOfImPaths,listOfGTs,sess, step):
+def runTrainStep(yoloNet, annotatedImages,sess, step):
 	"""
 	INPUTS:
-	-	listOfImPaths: list of strings, each of which is a path to a .jpg file
-	-	listOfGTs: list of n-d arrays, each of which is a 7x7x30 GT Tensor
+	-	yoloNet: Instance of YOLO_TrainingNetwork class (this is a CNN)
+	-	annotatedImages: python list of annotated_image class objects
+	-	sess: TensorFlow Session
+	-	step: int, current training iteration
+	OUTPUTS:
+	-	N/A
 	"""
-	print '====> Train Step %d =====>' % (step)
-	minibatchIms, minibatchGTs = sampleMinibatch()
-	feed = { yoloNet.inputIms: minibatchIms , yoloNet.gts : minibatchGTs }
-	trainLossVal = sess.run( [yoloNet.loss],feed_dict=feed )
+	minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
+	minibatchIms = np.expand_dims( minibatchIms, 0)
+	minibatchGTs = minibatchGTs.astype(np.float32)
+	minibatchGTs = minibatchGTs.astype(np.float32) # (NUM_GT_BOXES_IN_1_IMAGE, 73)
+	## FEED DROPOUT 0.5 AT TRAIN TIME, 1.0 AT TEST TIME #######
+	feed = { yoloNet.input_layer: minibatchIms , yoloNet.gts : minibatchGTs, yoloNet.dropout_prob: TRAIN_DROP_PROB }
+	trainLossVal, _ = sess.run( [yoloNet.loss, yoloNet.train_op],feed_dict=feed )
 	print 'Training loss at step %d: %f' % (step,trainLossVal)
 
 
+def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch ):
+	"""
+	INPUTS:
+	-	yoloNet: Instance of YOLO_TrainingNetwork class (this is a CNN)
+	-	annotatedImages: python list of annotated_image class objects
+	-	sess: TensorFlow Session
+	-	epoch: int, current training epoch
+	OUTPUTS:
+	-	N/A
+	"""
+	print '====> Evaluating: %s at epoch %d =====>' % (splitType, epoch)
+	minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
+	minibatchIms = np.expand_dims( minibatchIms, 0)
+	minibatchGTs = minibatchGTs.astype(np.float32)
+	minibatchGTs = minibatchGTs.astype(np.float32) # (NUM_GT_BOXES_IN_1_IMAGE, 73)
+	feed = { yoloNet.input_layer: minibatchIms , yoloNet.gts : minibatchGTs, yoloNet.dropout_prob: TEST_DROP_PROB }
+	class_probs,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
+	# NOW PROCESS THE PREDICTIONS HERE
+	# computeMeanAveragePrecision(BB,BBGT)
+	# save some of the plots just as a sanity check along the way
+	# plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
+
+
 if __name__ == '__main__':
-	annotatedImages = getData()
-	listOfImPaths, listOfGTs = makeGroundTruthTensors(annotatedImages)
+	"""
+	"""
+	annotatedImages = getData(getPickledData,vocImagesPklFilename)
+	trainData, valData, testData = separateDataSets(annotatedImages)
 	if plot_im_bboxes == True:
 		plotGroundTruth(annotatedImages)
-	yoloNet = YOLO_TrainingNetwork()
+	yoloNet = YOLO_TrainingNetwork( use_pretrained_weights = False)
+	numItersPerEpoch = TRAIN_SET_SIZE / BATCH_SIZE
 	with tf.Session() as sess:
-		for step in range(num_iters):
-			runTrainStep(yoloNet, listOfImPaths,listOfGTs,sess, step)
-
-	# Compute mean image, subtract by it
-	# Divide by standard deviation 
-
+		sess.run(tf.initialize_all_variables())
+		for epoch in range(NUM_EPOCHS):
+			print '====> Starting Epoch %d =====>' % (epoch)
+			for step in range(numItersPerEpoch):
+				runTrainStep(yoloNet, annotatedImages ,sess, step)
+			runEvalStep( 'val', yoloNet, annotatedImages ,sess, epoch)
+			runEvalStep( 'test', yoloNet, annotatedImages ,sess, epoch)
 
 
