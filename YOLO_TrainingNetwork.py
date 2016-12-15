@@ -17,7 +17,7 @@ START_IDX_BBOXES = END_IDX_CONFIDENCES
 END_IDX_BBOXES = START_IDX_BBOXES + (NUM_GRID**2)*2*4
 ########################################################
 
-from YoloTensorFlowFunctions import *
+#from YoloTensorFlowFunctions import *
 from MatrixCompute_YoloLossTF import *
 
 class YOLO_TrainingNetwork:
@@ -78,17 +78,21 @@ class YOLO_TrainingNetwork:
         connected_layer31 = self.create_connected_layer(dropout_layer30, 1470, False, 31, 'ConnectedLayer31')
         self.output_layer = connected_layer31
 
-        self.class_probs = self.output_layer[START_IDX_PROBS: END_IDX_PROBS ]
-        self.confidences = self.output_layer[ START_IDX_CONFIDENCES: END_IDX_CONFIDENCES ] )
-        self.bboxes = self.output_layer[ START_IDX_BBOXES : END_IDX_BBOXES] )
+        self.class_probs = self.output_layer[:, START_IDX_PROBS: END_IDX_PROBS ]
+        self.confidences = self.output_layer[:, START_IDX_CONFIDENCES: END_IDX_CONFIDENCES ]
+        self.bboxes = self.output_layer[:, START_IDX_BBOXES : END_IDX_BBOXES]
+
+        print 'Class Probs: ', self.class_probs.get_shape().as_list()
+        print 'Confidences: ', self.confidences.get_shape().as_list()
+        print 'Bboxes: ', self.bboxes.get_shape().as_list()
 
         self.class_probs = tf.reshape( self.class_probs,shape=[1,NUM_GRID,NUM_GRID,NUM_CLASSES])
         self.confidences = tf.reshape( self.confidences,shape=[1,NUM_GRID,NUM_GRID,2])
-        self.bboxes = tf.reshape(self.bboxes, shape=[1,NUM_GRID,NUM_GRID,2,4])
+        self.bboxes = tf.reshape(self.bboxes, shape=[1,NUM_GRID,NUM_GRID,2*4])
         #bboxes = np.reshape( predictions[end_confidences:], [self.S, self.S, self.B, 4] )
+        #pred_boxes_arr = pred_labels[:, :, :, NUM_CLASSES : NUM_CLASSES + NUM_BOX * 4]
 
-
-        self.loss = self.computeYoloLossTF( self.class_probs, self.confidences, self.bboxes, self.gts)
+        self.loss = computeYoloLossTF( self.class_probs, self.confidences, self.bboxes, self.gts)
 
         self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
 
@@ -212,14 +216,4 @@ class YOLO_TrainingNetwork:
         else:
             return input_layer
 
-    def computeYoloLossTF(self, pred, gt ):
-        """
-        Need to find a way to compute this as a batch and not individually
-        INPUTS:
-        -   pred: Tensor of shape 7x7x30, the reshaped output of last fully conn. layer
-        -   gt: [num_gt_boxes_per_image,NUM_CLASS+4+7*7]
-        OUTPUTS:
-        -   loss: float Tensor representing mean loss (across batch size of 1)
-        """
-        return compute_single_loss(pred,gt)
     

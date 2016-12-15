@@ -93,9 +93,11 @@ def compute_ious(pred_boxes, gtbox):
   return result
 
 
-def compute_single_loss(pred_labels, gt_labels):
+
+def computeYoloLossTF(pred_classes,pred_p_obj ,pred_boxes_arr, gt_labels):
   """
   INPUTS:
+  - pred_p_obj are the confidences
   - pred_labels: [batch=1, 7, 7, 20+2*5], batch has to be 1?!
               xy norm to grid, wh square root (out of network)
       PRETRAINED WEIGHTS REQUIRE: [20 CLASS PROBS , C1,C2, X Y W H, X Y W H]
@@ -120,13 +122,8 @@ def compute_single_loss(pred_labels, gt_labels):
   gt_pr_object = tf.reshape(gt_labels[:, NUM_CLASSES + 4 : ], [-1, 7, 7, 1]) # [num_gt_box,1,1,4]
   gt_boxes = tf.reshape(gt_labels[:, NUM_CLASSES : NUM_CLASSES + 4], [-1, 1, 1, 4]) # [num_gt_box,7,7,1]
 
-  pred_classes = pred_labels[:, :, :, 0 : NUM_CLASSES]
-  # CONSTRUCT A LIST OF PREDICTED BOXES
-
-  pred_boxes_arr = pred_labels[:, :, :, NUM_CLASSES : NUM_CLASSES + NUM_BOX * 4]
   print 'Predicted Box Arr Shape: ', pred_boxes_arr.get_shape().as_list()
   pred_boxes = [pb for pb in tf.split(3, NUM_BOX, pred_boxes_arr)]
-  pred_p_obj = pred_labels[:, :, :, NUM_CLASSES + NUM_BOX * 4 : NUM_CLASSES + NUM_BOX * 5]
 
   # Threshold the object probabilities
   mask_coord = tf.greater(pred_p_obj, THRESHOLD * tf.ones_like(pred_p_obj))
