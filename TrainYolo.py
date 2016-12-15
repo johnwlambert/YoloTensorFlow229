@@ -102,7 +102,8 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 		yoloNet.dropout_prob: TEST_DROP_PROB, yoloNet.gt_boxes_j0 : gt_boxes_j0 }
 
 		class_probs,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
-		detections.append( { class_given_obj:class_probs, confidences:confidences,bboxes:bboxes   })
+		detections.append( { class_given_obj:class_probs, confidences:confidences,\
+			bboxes:bboxes, gt_boxes_j0:gt_boxes_j0, gt_classes: gt_classes   })
 		# NOW PROCESS THE PREDICTIONS HERE
 	# BB, BBGT = convertPredsAndGTs(bboxes, class_probs, confidences )
 	mAP = computeMeanAveragePrecision(detections, splitType)

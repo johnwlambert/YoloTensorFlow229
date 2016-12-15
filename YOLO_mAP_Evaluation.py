@@ -24,7 +24,7 @@ def computeMeanAveragePrecision(detections, splitType):
 
 	aps = []
 	for i, cls in enumerate(CLASSES):
-	    rec, prec, ap = matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5)
+	    rec, prec, ap = matchGTsAndComputePrecRecallAP(cls,BB,BBGT,ovthresh=0.5)
 	    aps += [ap]
 	    print('AP for {} = {:.4f}'.format(cls, ap))
 	print('Mean AP = {:.4f}'.format(np.mean(aps)))
@@ -121,7 +121,7 @@ def unitTestAP():
 	assert (voc_ap(rec, prec) - naiveAPCalculation(rec,prec)) < EPSILON
 
 
-def matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5):
+def matchGTsAndComputePrecRecallAP(cls,BB,BBGT,ovthresh=0.5):
 	"""
 	INPUTS:
 	-	BB: predicted bounding boxes
@@ -137,42 +137,95 @@ def matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5):
 	them is counted as correct, and all the others are treated as false alarms
 	"""
 
-	# confidence = np.array([float(x[1]) for x in splitlines])
-    # BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
+    BBGT = []
+    BBGT_classes = []
+    confidence = []
+    BB = []
+    BB_classes = []
+    im_ids = []
+    num_gt_per_image = []
+
+    # FIND THE PREDICTIONS FOR JUST ONE CLASS, E.G. AIRPLANE
+    for i,im in enumerate(detections):
+    	for j in len(im['bboxes']):
+    		if im['class_given_obj'][j] == cls:
+    			
+
+
+
+    	for pred in im['bboxes']:
+    		BB.append( pred )
+    		im_ids.append( i )
+    		num_gt_per_image.append( len(im['gt_boxes_j0']) )
+    	for predclass in im['class_given_obj']: # will just be p(class) actually
+    		BB_classes.append( predclass )
+    	for conf in im['confidences']:
+    		confidence.append( conf)
+    	for gtbb in im['gt_boxes_j0']:
+    		BBGT.append(gtbb)
+    	for gtclass in im['gt_classes']:
+    		BBGT_classes.append(gtclass)
+
+	BBGT = np.asarray(BBGT)
+	BBGT_classes = np.asarray(BBGT_classes)
+	confidence = np.asarray(confidence)
+    BB = np.asarray(BB)
+    BB_classes = np.asarray(BB_classes)
 
     # sort by confidence
     sorted_ind = np.argsort(-confidence)
     sorted_scores = np.sort(-confidence)
     BB = BB[sorted_ind, :]
-    image_ids = [image_ids[x] for x in sorted_ind]
+
+	total_cls_groundtruth = 0
+
+	get k highest rank things
+	check to see what their ground truth is by looking at saved image id?
 
 
-	# go down detections and mark TPs and FPs
-	nd = len(image_ids)
-	tp = np.zeros(nd) # True positives
-	fp = np.zeros(nd) # False positives
-	for d in range(nd):
-		R = class_recs[image_ids[d]]
-		bb = BB[d, :].astype(float)
-		ovmax = -np.inf
-		if BBGT.size > 0:
-			overlaps = computeIOU(BBGT,bb)
-			ovmax = np.max(overlaps)
-			jmax = np.argmax(overlaps)
 
-        if ovmax > ovthresh:
-            if not R['difficult'][jmax]:
-                if not R['det'][jmax]:
-                    tp[d] = 1.
-                    R['det'][jmax] = 1
-                else:
-                    fp[d] = 1.
-        else:
-            fp[d] = 1.
+
+
+	# first just choose most confident thing
+	for k in range( BB.shape[0] )
+
+		rankK = 
+
+		# go down detections and mark TPs and FPs
+		total_cls_reports = 0
+		total_cls_groundtruth = 
+		
+		fp = 0
+		tp = 0
+
+		# then choose next most confident thing
+
+		if BBGT_classes[d] == cls:
+			total_cls_groundtruth += 1
+		if BB_classes[d] == cls:
+			total_cls_reports += 1
+		if BBGT_classes == BB_classes:
+			bb = BB[d, :].astype(float)
+			ovmax = -np.inf
+			if BBGT.size > 0:
+				overlaps = computeIOU(BBGT,bb)
+				ovmax = np.max(overlaps)
+				jmax = np.argmax(overlaps)
+
+	        if ovmax > ovthresh:
+	            if BBGT_classes[d] == BB_classes[d]:
+	                tp[d] = 1.
+	            else:
+	                fp[d] = 1.
+	        else:
+	            fp[d] = 1.
 
 	# compute precision recall
 	fp = np.cumsum(fp)
 	tp = np.cumsum(tp)
+
+	recall = tp
+
 	rec = tp / float(npos)
 	# avoid divide by zero in case the first detection matches a difficult
 	# ground truth
@@ -181,11 +234,3 @@ def matchGTsAndComputePrecRecallAP(BB,BBGT,ovthresh=0.5):
 	# My implementation vs. Ross Girshick's implementation.
 	assert (voc_ap(rec, prec) - naiveAPCalculation(rec,prec)) < EPSILON
 	return rec, prec, ap
-	
-
-
-BBGT = np.array([[0,0,4,4]])
-bb = np.array([1,1,4,4])
-print computeIOU(BBGT,bb)
-
-
