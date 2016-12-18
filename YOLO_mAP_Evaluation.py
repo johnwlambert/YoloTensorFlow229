@@ -3,8 +3,10 @@
 
 import os
 import numpy as np
+import pdb
+import matplotlib.pyplot as plt
 
-
+CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 
 EPSILON = 1e-5
 
@@ -18,11 +20,16 @@ def computeMeanAveragePrecision(detections, splitType):
 	This score corresponds to the area under the precision-recall curve.
 	The mean of these numbers is the mAP.
 	"""
+
+	#plotDets(detections)
 	aps = []
-	for i, cls in enumerate(CLASSES):
-	    rec, prec, ap = matchGTsAndComputePrecRecallAP(cls,detections,ovthresh=0.5)
-	    aps += [ap]
-	    print('AP for {} = {:.4f}'.format(cls, ap))
+	for classIdx, cls in enumerate(CLASSES):
+		pdb.set_trace()
+		#print 'Evaluate class: ', cls, ' with class index: ', classIdx
+		rec, prec, ap = matchGTsAndComputePrecRecallAP(classIdx,detections,iouthresh=0.5)
+		if ap is not None:
+			aps += [ap]
+			print('AP for {} = {:.4f}'.format(cls, ap))
 	print('Mean AP = {:.4f}'.format(np.mean(aps)))
 	print('~~~~~~~~')
 	print('Results:')
@@ -75,7 +82,7 @@ def intersection(BBGT,bb):
 	Why do they inflate numbers by adding +1.? I don't
 	https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/datasets/voc_eval.py#L168
 	"""
-	print BBGT[ 0], bb[0]
+	#print BBGT[ 0], bb[0]
 	ixmin = np.maximum(BBGT[ 0], bb[0])
 	iymin = np.maximum(BBGT[ 1], bb[1])
 	ixmax = np.minimum(BBGT[ 2], bb[2])
@@ -103,11 +110,12 @@ def union(BBGT,bb,inters):
 def computeIOU(BBGT,bb): 
 	maxIOU = 0
 	for i,gtBbox in enumerate(BBGT):
-		print gtBbox
+		gtBbox = np.squeeze(gtBbox)
+		#print gtBbox
 		inters = intersection(gtBbox,bb) * 1.0
-		print 'Intersection: ', inters
+		#print 'Intersection: ', inters
 		uni = union(gtBbox,bb,inters)
-		print 'Union: ', uni
+		#print 'Union: ', uni
 		iou =   inters/uni
 		maxIOU = max(iou,maxIOU)
 	return maxIOU
@@ -117,6 +125,56 @@ def unitTestAP():
 	prec = np.array([1.,1.,.67,.75,.6,0.67,4/7., .5, 4/9., 0.5])
 	rec = np.array([.2,.4,.4,.6,.6,.8,.8,.8,.8,1.])
 	assert (voc_ap(rec, prec) - naiveAPCalculation(rec,prec)) < EPSILON
+
+def plotRectangle(bbox,ax,class_name, edgecolor):
+	"""
+	"""
+	xmin = bbox[0]
+	ymin = bbox[1]
+	xmax = bbox[2]
+	ymax = bbox[3]
+	left = xmin
+	right = xmax
+	top = ymin
+	bot = ymax
+	ax.add_patch(
+        plt.Rectangle((left, top),
+                      right-left,
+                      bot-top, fill=False,
+                      edgecolor=edgecolor, linewidth=3.5)
+        )
+	ax.text(left, top-2,
+            '{:s}'.format(class_name ),
+            bbox=dict(facecolor='blue', alpha=0.5),
+            fontsize=14, color='white')
+
+
+def plotDets(detections):
+
+	for imIdx,im in enumerate(detections):
+
+		image = im['im']
+		image = np.squeeze(image)
+		imWidth = image.shape[1]
+		imHeight = image.shape[0]
+		fig, ax = plt.subplots(figsize=(8, 8))
+		ax.imshow(image, aspect='equal')
+
+		# look at each of the predictions
+		for j in range( len(im['bboxes'])):
+			pred_class = im['pred_classes'][j]
+			bbox = im['bboxes'][j] 
+			plotRectangle(bbox,ax,CLASSES[pred_class], 'red')
+		for j in range( len(im['gt_boxes_j0'])):
+			gt_class = im['gt_classes'][j]
+    		gt_bbox = im['gt_boxes_j0'][j]
+    		plotRectangle(bbox,ax,CLASSES[gt_class], 'green')
+
+		plt.draw()
+		plt.tight_layout()
+		#plt.show()
+		plt.savefig( 'Image_%d.png' % imIdx)
+		plt.gcf().set_size_inches(15, 12)
 
 
 def matchGTsAndComputePrecRecallAP(cls,detections,iouthresh=0.5):
@@ -136,11 +194,10 @@ def matchGTsAndComputePrecRecallAP(cls,detections,iouthresh=0.5):
 	"""
 	BBGT = []
 	confidence = []
-	predBB = []
+	BB = []
 	BB_im_ids = []
 
 	imIdToNumGtInsideImDict = {}
-
 	# FIND THE PREDICTIONS FOR JUST --ONE CLASS--, E.G. AIRPLANE
 	for imIdx,im in enumerate(detections):
 		# look at each of the predictions
@@ -148,53 +205,70 @@ def matchGTsAndComputePrecRecallAP(cls,detections,iouthresh=0.5):
 			if im['pred_classes'][j] == cls:
 				BB.append( im['bboxes'][j] )
 				confidence.append( im['confidences'][j] )
-				im_ids.append( imIdx )
+				BB_im_ids.append( imIdx )
 		for j in range( len(im['gt_boxes_j0'])):
 			num_of_this_class_in_this_im = 0
     		if im['gt_classes'][j] == cls:
     			BBGT.append( im['gt_boxes_j0'][j] )
     			num_of_this_class_in_this_im += 1
     		imIdToNumGtInsideImDict[imIdx] = num_of_this_class_in_this_im
-
 	BBGT = np.asarray(BBGT)
+	if BBGT.shape[0] == 0:
+		return None,None,None
 	confidence = np.asarray(confidence)
 	BB = np.asarray(BB)
+	if BB.shape[0] > 0:
+		print 'At least one detection made.'
+	#print 'BBGT has shape: ', BBGT.shape
+	BB_im_ids = np.asarray(BB_im_ids)
 
 	# sort by confidence
 	sorted_ind = np.argsort(confidence) # sort according to highest confidence
 	sorted_scores = np.sort(confidence) # sort according to highest confidence
-	BB = BB[sorted_ind, :]
-	BB_im_ids = BB_im_ids[sorted_ind,:]
 
-	#get k highest rank (confidence score) things
-	for k in range( BB.shape[0] ):
-		# then choose next most confident thing
-		#get unique imIds inside current rank list
-		total_cls_reports = k
-		uniqueImIds = np.unique( BB_im_ids[:k])
-		for uniqueImId in uniqueImIds:
-			total_cls_groundtruth += imIdToNumGtInsideImDict[uniqueImId]
-
-		# go down detections and mark TPs and FPs
-		fp = 0
-		tp = 0
-		if BBGT_classes == BB_classes:
-			bb = BB[d, :].astype(float)
-			ovmax = -np.inf
-			if BBGT.size > 0:
+	prec = []
+	rec = []
+	if BB.shape[0] > 0:
+		print 'One Valid Detection.'
+		#pdb.set_trace()
+		BB = BB[sorted_ind]
+		BB_im_ids = BB_im_ids[sorted_ind]
+		#print 'BB.shape: ', BB.shape
+		BB = np.squeeze(BB,axis=1)
+		#print 'BB.shape: ', BB.shape
+		BB_im_ids = np.squeeze(BB_im_ids, axis=1)
+		#get k highest rank (confidence score) things
+		for k in range( 1,BB.shape[0]+1 ):
+			# then choose next most confident thing
+			#get unique imIds inside current rank list
+			total_cls_reports = k
+			#print 'BB_im_ids has shape: ', BB_im_ids.shape
+			uniqueImIds = np.unique( BB_im_ids[:k])
+			total_cls_groundtruth = 0
+			for uniqueImId in uniqueImIds:
+				total_cls_groundtruth += imIdToNumGtInsideImDict[uniqueImId]
+			# go down detections and mark TPs and FPs
+			fp = 0
+			tp = 0
+			for j in range( k ):
+				bb = BB[j, :].astype(float)
+				bb = np.squeeze(bb)
 				iou = computeIOU(BBGT,bb)
+				print 'IOU: ', iou
 		        if iou > iouthresh:
-		            if BBGT_classes[d] == BB_classes[d]:
-		                tp += 1.
-		            else:
-		                fp += 1.
+		        	tp += 1.
 		        else:
-		            fp += 1.
+		        	fp += 1.
+			# compute precision recall
+			prec.append( tp / max(total_cls_reports, np.finfo(np.float64).eps)) # how accurate are reports
+			rec.append( tp / max(total_cls_groundtruth, np.finfo(np.float64).eps)) # how many ground truth can be found by the algorithm
+	else:
+		# no detections
+		rec = [0]
+		prec = [0]
 
-	# compute precision recall
-	precision = tp / maximum(tp + fp, np.finfo(np.float64).eps) # how accurate are reports
-	recall = tp / maximum(tp + fn, np.finfo(np.float64).eps) # how many ground truth can be found by the algorithm
-
+	print 'Recall: ', rec
+	print 'Precision: ', prec
 	# avoid divide by zero
 	ap = voc_ap(rec, prec )
 	# My implementation vs. Ross Girshick's implementation -- should be same area under curve

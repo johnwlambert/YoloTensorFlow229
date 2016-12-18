@@ -8,6 +8,7 @@ from functools import reduce
 ########################################################
 NUM_CLASSES = 20
 NUM_GRID = 7
+LEARNING_RATE = 1e-4
 ########################################################
 START_IDX_PROBS = 0
 END_IDX_PROBS = (NUM_CLASSES) * (NUM_GRID**2)
@@ -21,13 +22,14 @@ END_IDX_BBOXES = START_IDX_BBOXES + (NUM_GRID**2)*2*4
 from MatrixCompute_YoloLossTF import *
 
 class YOLO_TrainingNetwork:
-    def __init__(self, use_pretrained_weights):
+    def __init__(self,  use_pretrained_weights):
+        #self.weight_path = weight_path
         self.num_classes = 20
         self.S = 7
         self.B = 2
         self.use_open_cv = False
         self.add_placeholders()
-        self.lr = 1e-4
+        self.lr = LEARNING_RATE
         self.pretrained_weights = use_pretrained_weights
         self.create_network()
 
@@ -102,7 +104,8 @@ class YOLO_TrainingNetwork:
         #pred_boxes_arr = pred_labels[:, :, :, NUM_CLASSES : NUM_CLASSES + NUM_BOX * 4]
 
         self.loss = computeYoloLossTF( self.class_probs, self.confidences, self.bboxes, self.gt_conf,self.gt_classes, self.ind_obj_i, self.gt_boxes_j0)
-        self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
+        #self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
+        self.train_op = tf.train.GradientDescentOptimizer(self.lr).minimize(self.loss)
 
         # tf.contrib.metrics.streaming_sparse_average_precision_at_k(predictions, labels, k, weights=None, metrics_collections=None, updates_collections=None, name=None)
 

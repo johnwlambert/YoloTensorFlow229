@@ -7,7 +7,7 @@
 # Verify Indicator Probabilities
 # Compute p(c) = p(c | obj) * p(obj) before loss calc
 # Compute mean image, subtract by it, Divide by standard deviation.
-
+import pdb
 from PIL import Image
 import tensorflow as tf
 import math
@@ -75,7 +75,8 @@ def runTrainStep(yoloNet, annotatedImages,sess, step):
 	yoloNet.gt_classes : gt_classes, yoloNet.ind_obj_i: ind_obj_i, \
 	yoloNet.dropout_prob: TRAIN_DROP_PROB, yoloNet.gt_boxes_j0 : gt_boxes_j0 }
 
-	trainLossVal, _ = sess.run( [yoloNet.loss, yoloNet.train_op],feed_dict=feed )
+	trainLossVal = sess.run( yoloNet.loss ,feed_dict=feed ) # yoloNet.train_op
+	#print 'Length of train loss: ', len(trainLossVal)
 	print 'Training loss at step %d: %f' % (step,trainLossVal)
 
 def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_val_mAP ):
@@ -90,8 +91,12 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 	"""
 	detections = []
 	print '====> Evaluating: %s at epoch %d =====>' % (splitType, epoch)
-	for i in range( data_set_size ):
-		minibatchIms, minibatchGTs = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
+	if splitType == 'val':
+		data_set_size = VAL_SET_SIZE
+	elif splitType == 'test':
+		data_set_size = TEST_SET_SIZE
+	for i in range( 500): #data_set_size ):
+		minibatchIms, minibatchGT = sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoints)
 		minibatchIms = np.expand_dims( minibatchIms, 0)
 
 		gt_conf,gt_classes,ind_obj_i,gt_boxes_j0 = minibatchGT
@@ -105,35 +110,55 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 		yoloNet.gt_classes : gt_classes, yoloNet.ind_obj_i: ind_obj_i, \
 		yoloNet.dropout_prob: TEST_DROP_PROB, yoloNet.gt_boxes_j0 : gt_boxes_j0 }
 
-		class_probs_giv_obj,confidences,bboxes = sess.run( [self.class_probs,self.confidences,self.bboxes],feed_dict=feed )
-
+		class_probs_giv_obj,confidences,boxes, lossVal = sess.run( [yoloNet.class_probs,yoloNet.confidences,yoloNet.bboxes, yoloNet.loss],feed_dict=feed )
+		print 'Loss in %s split at epoch%d , iter %d : %f' % (splitType, epoch, i, lossVal)
 		# NOW PROCESS THE PREDICTIONS HERE
 		boxes = np.reshape(boxes, [NUM_GRID*NUM_GRID,NUM_BOX,4] )
-		boxes = convertWH_to_xMax_yMax( boxes )
+		boxes = unnormalizeBoxes(boxes, minibatchIms)
+		gt_boxes_j0 = unnormalizeGTBoxes(gt_boxes_j0,minibatchIms)
+		#boxes = convertWH_to_xMax_yMax( boxes )
 		class_probs = np.zeros((NUM_GRID*NUM_GRID,NUM_BOX,NUM_CLASSES))
 		# We use a law of probability: prob(class) = prob(class|object) * prob(object)
 														# 49 x 20 			49 x 2
 		for i in range(NUM_BOX):
 			for j in range(NUM_CLASSES):
-				class_probs[:,i,j] = np.multiply(class_probs_giv_obj[:,:,j],confidences[:,:,i])
+				class_probs[:,i,j] = np.multiply(class_probs_giv_obj[:,j],confidences[:,i])
 
-		class_indices = np.argmax( class_probs, axis = 2)
+		class_probs = np.reshape( class_probs, [-1,20] )
+		confidences = np.reshape( confidences, [-1,1] )
+		boxes = np.reshape( boxes, [-1,4] )
+
+		class_indices = np.argmax( class_probs, axis = 1)
 		valid_detection_indices = np.where( confidences > 0.2 )[0]
 
 		class_indices = class_indices[valid_detection_indices]
 		confidences = confidences[valid_detection_indices]
 		boxes = boxes[valid_detection_indices,:]
-		print 'Class Indices have shape: ', class_indices.shape
-		
+		#print 'Class Indices have shape: ', class_indices.shape
+		# pdb.set_trace()
+		# gt_nonzero_indices = []
+		# for gridIdx in range(49):
+		# 	if np.sum(gt_boxes_j0[gridIdx]) > 0.9:
+		# 		gt_nonzero_indices.append( gridIdx)
+		# gt_nonzero_indices = np.asarray( gt_nonzero_indices )
+		# print 'NON_ZERO_INDICES: ', gt_nonzero_indices
+		gt_nonzero_indices = np.where( np.sum(gt_classes, axis = 1) > 0.9 )[0]
+		gt_boxes_j0 = gt_boxes_j0[gt_nonzero_indices]
+		#print 'GT_classes looks like: ', gt_classes
+		gt_classes = gt_classes[gt_nonzero_indices]
+		#print 'Shrunken gt_classes: ', gt_classes
+		gt_classes = np.argmax( gt_classes, axis = 1)
+		#print 'argmaxed gt_classes: ', gt_classes
+
 		detections.append( { 'pred_classes':class_indices, 'confidences':confidences,\
-			'bboxes':boxes, 'gt_boxes_j0':gt_boxes_j0, 'gt_classes': gt_classes   })
+			'bboxes':boxes, 'gt_boxes_j0':gt_boxes_j0, 'gt_classes': gt_classes, 'im':minibatchIms   })
 
 	# BB, BBGT = convertPredsAndGTs(bboxes, class_probs, confidences )
 	mAP = computeMeanAveragePrecision(detections, splitType)
 	# save some of the plots just as a sanity check along the way
-
+	print '==> Current mAP: ', mAP, ' ===>'
 	if (splitType == 'val') and (mAP > best_val_mAP):
-		saver.save(session, './%s/YOLO_Trained.weights' % (new_dir_path ) )
+		#saver.save(sess, './YOLO_Trained.weights' )
 		best_val_mAP = mAP
 	# plot_detections_on_im( imread(self.image_path),probs,confidences,bboxes,classes)
 
@@ -142,21 +167,86 @@ def runEvalStep( splitType, yoloNet, annotatedImages ,sess, epoch, saver, best_v
 	# Why not just at test time do cross product?
 
 
-def convertWH_to_xMax_yMax( boxes ):
+def unnormalizeBoxes(boxes, im):
 	"""
 	INPUTS:
-	-	boxes: n-d array contains [xmin,ymin,w,h] columns
+	-	boxes: NUM_GRID*NUM_GRID,NUM_BOX,4
 	OUTPUTS:
-	-	boxes: n-d array contains [xmin,ymin,xmax,ymax] columns
+	-	boxes: but scaled to image, and 
+
+		x_cent,y_cent,w,h
 	"""
-	xmin = boxes[:,:,0]
-	ymin = boxes[:,:,1]
-	boxes[:,:,2] += xmin # xmin + w = xmax
-	boxes[:,:,3] += ymin # ymin + h = ymax
+	im = np.squeeze( im )
+	imWidth = im.shape[1]
+	imHeight = im.shape[0]
+	grid_width = int(np.floor(imWidth / 7.))
+	grid_height = int(np.floor(imHeight / 7.))
+
+	for row in range(7):
+		for col in range(7):
+			gridIdx = (row*7) + col
+			grid_x_offset = col * grid_width
+			grid_y_offset = row * grid_height
+			for boxIdx in range(2):
+				# box_x_offset = boxes[gridIdx,j,0] * grid_width
+				# box_y_offset = boxes[gridIdx,j,1] * grid_height
+				# boxes[gridIdx,j,0] = box_x_offset + grid_x_offset
+				# boxes[gridIdx,j,1] = box_y_offset + grid_y_offset
+				# box_sqrt_w
+				x_cent = (boxes[gridIdx,boxIdx,0] + col) / 7.0 * imWidth
+				y_cent = (boxes[gridIdx,boxIdx,1] + row) / 7.0 * imHeight
+				w = (boxes[gridIdx,boxIdx,2]**2) * imWidth * 1.0
+				h = (boxes[gridIdx,boxIdx,3]**2) * imHeight * 1.0
+				xmin = max(0, x_cent - w/2. )
+				xmax = min( x_cent + w/2., imWidth-1 )
+				ymin = max(0, y_cent - h/2. )
+				ymax = min( y_cent + h/2., imHeight-1 )
+				boxes[gridIdx,boxIdx,:] = np.array([xmin,ymin,xmax,ymax])
+	# now have xcent,ycent,w,h
+	# convert to xmin,xmax,ymin,ymax
+
 	return boxes
 
 
+def unnormalizeGTBoxes(boxes,im):
+	im = np.squeeze( im )
+	imWidth = im.shape[1]
+	imHeight = im.shape[0]
+	grid_width = int(np.floor(imWidth / 7.))
+	grid_height = int(np.floor(imHeight / 7.))
+
+	for row in range(7):
+		for col in range(7):
+			gridIdx = (row*7) + col
+			x_cent = (boxes[gridIdx,0] + col) / 7.0 * imWidth
+			y_cent = (boxes[gridIdx,1] + row) / 7.0 * imHeight
+			w = (boxes[gridIdx,2]**2) * imWidth * 1.0
+			h = (boxes[gridIdx,3]**2) * imHeight * 1.0
+			xmin = max(0, x_cent - w/2. )
+			xmax = min( x_cent + w/2., imWidth-1 )
+			ymin = max(0, y_cent - h/2. )
+			ymax = min( y_cent + h/2., imHeight-1 )
+			boxes[gridIdx,:] = np.array([xmin,ymin,xmax,ymax])
+	return boxes
+
+# def convertWH_to_xMax_yMax( boxes ):
+# 	"""
+# 	INPUTS:
+# 	-	boxes: n-d array contains [xmin,ymin,w,h] columns
+# 	OUTPUTS:
+# 	-	boxes: n-d array contains [xmin,ymin,xmax,ymax] columns
+# 	"""
+# 	xmin = boxes[:,:,0]
+# 	ymin = boxes[:,:,1]
+# 	boxes[:,:,2] += xmin # xmin + w = xmax
+# 	boxes[:,:,3] += ymin # ymin + h = ymax
+# 	return boxes
+
+
 if __name__ == '__main__':
+
+	checkpoint_path = '/Users/johnlambert/Documents/Stanford_2016-2017/CS_229/229CourseProject/YoloTensorFlow229/yolo.ckpt'
+
 	best_val_mAP = -1 * float('inf')
 	annotatedImages = getData(getPickledData,vocImagesPklFilename)
 	trainData, valData, testData = separateDataSets(annotatedImages)
@@ -164,16 +254,24 @@ if __name__ == '__main__':
 		plotGroundTruth(annotatedImages)
 	yoloNet = YOLO_TrainingNetwork( use_pretrained_weights = False)
 	numItersPerEpoch = TRAIN_SET_SIZE / BATCH_SIZE
-	saver = tf.train.Saver()
+
+	# t = 1
+	# beta1 = tf.convert_to_tensor(0.9)
+	# beta2 = tf.convert_to_tensor(0.999)
+	# beta1_power = beta1**t
+	# beta2_power = beta2**t
+
+	saver = tf.train.Saver() # {'beta2_power':beta2_power} )
 	with tf.Session() as sess:
 		sess.run(tf.initialize_all_variables())
-		for epoch in range(NUM_EPOCHS):
+		saver.restore(sess, checkpoint_path)
+		for epoch in range(20):#NUM_EPOCHS):
 			print '====> Starting Epoch %d =====>' % (epoch)
-			for step in range(numItersPerEpoch):
+			for step in range( 1): # numItersPerEpoch):
 				runTrainStep(yoloNet, annotatedImages ,sess, step)
 			runEvalStep( 'val', yoloNet, annotatedImages ,sess, epoch, saver, best_val_mAP)
 		# After all training complete
-		saver.restore
+		saver.restore(sess, './YOLO_Trained.weights' )
 		runEvalStep( 'test', yoloNet, annotatedImages ,sess, epoch, None, None)
 
 

@@ -9,8 +9,9 @@ from scipy.misc import imread, imresize
 
 from YOLO_PlottingUtils import *
 from YOLO_CoverageMap import *
-
+from preprocess_data import *
 ###### HYPERPARAMETERS #######
+voc_data_path = 'home/johnwl/YoloTensorFlow229/VOCdevkit/'
 PERCENT_TRAIN_SET = 0.8
 PERCENT_VAL_SET = 0.1
 PERCENT_TEST_SET = 0.1
@@ -89,7 +90,7 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 
 	gt_classes = np.zeros((49,20))
 	gt_conf = np.zeros((49,4))
-	ind_obj_i = np.zeros((49,20))
+	ind_obj_i = np.zeros((49))
 	gt_boxes_j0 = np.zeros((49,4))
 	
 	im = imread(image_path)
@@ -119,8 +120,8 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 			j = 0 # 2nd box slot for this grid cell
 			gt_classes[gridCellRow * 7 + gridCellCol, classIdx ] = 1
 			xywh = np.array([ normalizedXCent, normalizedYCent, math.sqrt(normalizedW), math.sqrt(normalizedH) ])
-			bboxGT = np.hstack(( classGTs , xywh, coverageMap)) # coverage map is the confidence
-			gt_boxes_j0[ gridCellRow * 7 + gridCellCol, bboxGT]
+			bboxGT = xywh # coverage map is the confidence
+			gt_boxes_j0[ gridCellRow * 7 + gridCellCol] = bboxGT
 			occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
 
 			# values in each of 4 columns are identical (tiled/repmatted). Object here at cell i!
@@ -135,8 +136,8 @@ def sampleMinibatch(annotatedImages, plot_yolo_grid_cells, plot_bbox_centerpoint
 		# 	gt = np.hstack(( classGTs , xywh, coverageMap)) # coverage map is the confidence
 		# 	occupiedSlot[gridCellRow,gridCellCol,j] = CONTAINS_IMAGE_FLAG
 		else:
-			print 'In Image %d, no more room in some grid cell for this bbox.' % (imNum)
-
+			#print 'In Image %d, no more room in some grid cell for this bbox.' % (imNum)
+			pass
 	if plot_bbox_centerpoints == True:
 		plt.scatter(x_cent,y_cent)
 	if plot_bbox_centerpoints or plot_yolo_grid_cells:
