@@ -182,7 +182,7 @@ class YOLO:
         img_out = img.copy()
         return plot_detections_on_im(img_out, probs, confidences, bboxes, classes)
 
-    def process_video(self, video_path):
+    def process_video(self, video_path, start_frame, end_frame):
         frame_detections = []
         cap = cv2.VideoCapture(video_path)
         w = int(cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH))
